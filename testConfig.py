@@ -1,3 +1,5 @@
+import os
+
 ## 所有参数设置
 symbol = "XRP/USDT"
 strategy = "bolling"
@@ -12,8 +14,9 @@ startTimeData = "2020-01-7 00:00:00"
 endTimeData = "2022-11-28 00:00:00"
 # 原始数据文件的格式和命名
 dataFileFmt = "hdf"
-# dataFile = r"dataStore\BTC-USDT_5.h5"
-dataFile = f'dataStore\\data_{symbol.replace("/","-")}_{levelBase}_{startTimeData.replace("-","").replace(" ","")[:8]}_{endTimeData.replace("-","").replace(" ","")[:8]}.{dataFileFmt}'
+# dataFile = os.path.join("dataStore", "data_BTC-USDT_5m_20180701_20221124.hdf")
+# dataFile = f'dataStore\\data_{symbol.replace("/","-")}_{levelBase}_{startTimeData.replace("-","").replace(" ","")[:8]}_{endTimeData.replace("-","").replace(" ","")[:8]}.{dataFileFmt}'
+dataFile = os.path.join("dataStore", f'data_{symbol.replace("/","-")}_{levelBase}_{startTimeData.replace("-","").replace(" ","")[:8]}_{endTimeData.replace("-","").replace(" ","")[:8]}.{dataFileFmt}')
 
 # 测试数据（原始数据中的一部分）
 # 测试数据的起止时间

@@ -109,6 +109,7 @@ def main(equityFilePath):
 
 if __name__ == "__main__":
     t = str(dt.datetime.now()).replace("-","").replace(" ","").replace(":", "")[:14]
-    equityFilePath = f'dataStore\\{strategy}_equity\\{symbol.replace("/","-")}\\{t}'
+    # equityFilePath = f'dataStore\\{strategy}_equity\\{symbol.replace("/","-")}\\{t}'
+    equityFilePath = os.path.join("dataStore", f"{strategy}_equity", symbol.replace("/","-"), t)
     os.makedirs(equityFilePath, exist_ok=True)
     main(equityFilePath)
