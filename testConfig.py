@@ -1,7 +1,7 @@
 import os
 
 ## 所有参数设置
-symbol = "XRP/USDT"
+symbol = "LINK/USDT"
 strategy = "bolling"
 
 # 期望盈利目标（倍数），不满足该倍数的结果不保存
@@ -10,7 +10,7 @@ plRate = 3
 # 原始数据的k线级别
 levelBase = "5m"
 # 原始数据的起止时间
-startTimeData = "2020-01-7 00:00:00"
+startTimeData = "2020-01-14 00:00:00"
 endTimeData = "2022-11-28 00:00:00"
 # 原始数据文件的格式和命名
 dataFileFmt = "hdf"
@@ -20,7 +20,7 @@ dataFile = os.path.join("dataStore", f'data_{symbol.replace("/","-")}_{levelBase
 
 # 测试数据（原始数据中的一部分）
 # 测试数据的起止时间
-startTimeUse = "2020-01-7 00:00:00"
+startTimeUse = "2020-01-14 00:00:00"
 endTimeUse = "2022-11-28 00:00:00"
 # 生成布林带测试参数组合
 # levelList = ["5m"]

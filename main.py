@@ -75,7 +75,7 @@ def main(equityFilePath):
     init()  # 彩色字体初始化
     # 生成布林带所有参数组合
     paraBollings = getBollingParas(levelList, maLengthList, timesList)
-    ex = ccxt.binance()
+    ex = ccxt.binance({"options":{"defaultType":"future"}})
 
     # 如果没找到原始数据文件，就开始下载
     if os.path.exists(dataFile) is False:
