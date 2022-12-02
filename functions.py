@@ -230,7 +230,7 @@ def getBollingPositionOptimized(dataFrame, para=[400, 2, 0.03]):
 
 
 # 计算资金曲线
-def getBollingEquity(dataFrame, para):
+def getBollingEquity(df, para):
     # para:
     # { "cash": 1000,
     #   "faceValue": 0.001,
@@ -249,74 +249,74 @@ def getBollingEquity(dataFrame, para):
     
     # 计算建仓和平仓的时间
     # 找到开仓k线，当前k线非空仓，上一k线与非空仓状态不同，即从另一状态改变成非空仓状态
-    condOpen1 = dataFrame["position"] != 0
-    condOpen2 = dataFrame["position"].shift(1) != dataFrame["position"]
+    condOpen1 = df["position"] != 0
+    condOpen2 = df["position"].shift(1) != df["position"]
     condOpen = condOpen1 & condOpen2
     # 找到平仓k线，当前k线为持仓，下一k线与当前持仓状态不同，即从持仓状态改变到另一状态
-    condCover1 = dataFrame["position"] != 0
-    condCover2 = dataFrame["position"].shift(-1) != dataFrame["position"]
+    condCover1 = df["position"] != 0
+    condCover2 = df["position"].shift(-1) != df["position"]
     condCover = condCover1 & condCover2
 
     # 用开仓时间对每笔交易进行分组，开仓时间即开仓k线的开盘时间，以后就用这个开仓时间来groupby每笔交易
-    dataFrame.loc[condOpen, "actionTime"] = dataFrame["openTimeGmt8"]
-    dataFrame["actionTime"].fillna(method="ffill", inplace=True)
-    dataFrame.loc[dataFrame["position"]==0, "actionTime"] = pd.NaT
+    df.loc[condOpen, "actionTime"] = df["openTimeGmt8"]
+    df["actionTime"].fillna(method="ffill", inplace=True)
+    df.loc[df["position"]==0, "actionTime"] = pd.NaT
     
 
     # 在建仓点计算出能购买的合约数量，要计算滑点
     # 滑点的方向根据开仓方向，多仓为正方向，空仓为负方向
-    dataFrame.loc[condOpen, "openPrice"] = dataFrame["open"] * (1 + slippange * dataFrame["position"])
-    dataFrame.loc[condOpen, "contractAmount"] = cash * leverage / (dataFrame["open"] * faceValue)
-    dataFrame["contractAmount"] = np.floor(dataFrame["contractAmount"])
+    df.loc[condOpen, "openPrice"] = df["open"] * (1 + slippange * df["position"])
+    df.loc[condOpen, "contractAmount"] = cash * leverage / (df["open"] * faceValue)
+    df["contractAmount"] = np.floor(df["contractAmount"])
     # 本笔交易的开仓资金=初始资金-开仓手续费。每笔交易都单独看待，所以资金数量不重要。最后把每笔交易的收益率（平仓资金-开仓资金）合起来，就是总收益率。
-    dataFrame["openCash"] = cash - dataFrame["contractAmount"] * faceValue * dataFrame["openPrice"] * commission
+    df["openCash"] = cash - df["contractAmount"] * faceValue * df["openPrice"] * commission
     # 持仓过程中，收益根据收盘价计算，其他数据保持不变
-    dataFrame["openCash"].fillna(method="ffill", inplace=True)
-    dataFrame["contractAmount"].fillna(method="ffill", inplace=True)
-    dataFrame["openPrice"].fillna(method="ffill", inplace=True)
+    df["openCash"].fillna(method="ffill", inplace=True)
+    df["contractAmount"].fillna(method="ffill", inplace=True)
+    df["openPrice"].fillna(method="ffill", inplace=True)
     # 空仓时数据为空
-    dataFrame.loc[dataFrame["position"]==0, ["openCash", "openPrice", "contractAmount"]] = None
-    # dataFrame.drop(["ma", "upper", "lower"], axis=1, inplace=True)
+    df.loc[df["position"]==0, ["openCash", "openPrice", "contractAmount"]] = None
+    # df.drop(["ma", "upper", "lower"], axis=1, inplace=True)
 
     # 平仓点上，卖出价按下一根k线开盘价算，扣除手续费和滑点
-    dataFrame.loc[condCover, "closePrice"] = dataFrame["open"].shift(-1) * (1 - slippange * dataFrame["position"])
-    dataFrame.loc[condCover, "fee"] = dataFrame["closePrice"] * faceValue * dataFrame["contractAmount"] * commission
+    df.loc[condCover, "closePrice"] = df["open"].shift(-1) * (1 - slippange * df["position"])
+    df.loc[condCover, "fee"] = df["closePrice"] * faceValue * df["contractAmount"] * commission
     
     # 计算收入和净收益，此时还未考虑爆仓情况，爆仓以后还要把净收益归零
-    dataFrame["profit"] = (dataFrame["close"] - dataFrame["openPrice"]) * faceValue * dataFrame["contractAmount"] * dataFrame["position"]
-    dataFrame.loc[condCover, "profit"] = (dataFrame["closePrice"] - dataFrame["openPrice"]) * faceValue * dataFrame["contractAmount"] * dataFrame["position"]
-    dataFrame["netValue"] = dataFrame["openCash"] + dataFrame["profit"]
-    dataFrame.loc[condCover, "netValue"] -= dataFrame["fee"]
+    df["profit"] = (df["close"] - df["openPrice"]) * faceValue * df["contractAmount"] * df["position"]
+    df.loc[condCover, "profit"] = (df["closePrice"] - df["openPrice"]) * faceValue * df["contractAmount"] * df["position"]
+    df["netValue"] = df["openCash"] + df["profit"]
+    df.loc[condCover, "netValue"] -= df["fee"]
 
     # 处理爆仓情况
     # 用k先的最高价最低价，计算出最小净值，用最小净值再计算出当时的保证金率，从而判断是否爆仓
-    dataFrame.loc[dataFrame["position"]==1, "priceMin"] = dataFrame["low"]
-    dataFrame.loc[dataFrame["position"]==-1, "priceMin"] = dataFrame["high"]
-    dataFrame["profitMin"] = faceValue * dataFrame["contractAmount"] * (dataFrame["priceMin"] - dataFrame["openPrice"]) * dataFrame["position"]
+    df.loc[df["position"]==1, "priceMin"] = df["low"]
+    df.loc[df["position"]==-1, "priceMin"] = df["high"]
+    df["profitMin"] = faceValue * df["contractAmount"] * (df["priceMin"] - df["openPrice"]) * df["position"]
     # 账户净值最小值
-    dataFrame["netValueMin"] = dataFrame["openCash"] + dataFrame["profitMin"]
+    df["netValueMin"] = df["openCash"] + df["profitMin"]
     # 计算最低保证金率
-    dataFrame["marginRatio"] = dataFrame["netValueMin"] / (faceValue * dataFrame["contractAmount"] * dataFrame["priceMin"])
+    df["marginRatio"] = df["netValueMin"] / (faceValue * df["contractAmount"] * df["priceMin"])
     # 计算是否爆仓
-    dataFrame.loc[dataFrame["marginRatio"]<=(marginMin + commission), "isFucked"] = 1
+    df.loc[df["marginRatio"]<=(marginMin + commission), "isFucked"] = 1
     # 按每笔交易处理爆仓，爆仓点以后的netvalue都为0。groupby的fillna要用赋值，不能用inplace=True了
-    dataFrame["isFucked"] = dataFrame.groupby("actionTime")["isFucked"].fillna(method="ffill")
-    dataFrame.loc[dataFrame["isFucked"]==1, "netValue"] = 0
+    df["isFucked"] = df.groupby("actionTime")["isFucked"].fillna(method="ffill")
+    df.loc[df["isFucked"]==1, "netValue"] = 0
 
     # 计算资金曲线
-    dataFrame["equityChange"] = dataFrame["netValue"].pct_change()
-    dataFrame.loc[condOpen, "equityChange"] = dataFrame.loc[condOpen, "netValue"] / cash - 1
-    dataFrame["equityChange"].fillna(value=0, inplace=True)
-    dataFrame["equityCurve"] = (1 + dataFrame["equityChange"]).cumprod()
+    df["equityChange"] = df["netValue"].pct_change()
+    df.loc[condOpen, "equityChange"] = df.loc[condOpen, "netValue"] / cash - 1
+    df["equityChange"].fillna(value=0, inplace=True)
+    df["equityCurve"] = (1 + df["equityChange"]).cumprod()
 
-    # dataFrame.drop(
-    #     [
-    #         "openPrice", "contractAmount", "openCash", 
-    #         "profit", "netValue", "closePrice", "fee",
-    #         "priceMin", "profitMin", "netValueMin", "marginRatio",
-    #     ], axis=1, inplace=True)
+    df.drop(
+        [
+            "signalLong", "signalShort", "openCash", 
+            "priceMin", "fee", "profitMin", "netValueMin",
+            "marginRatio", "equityChange", "contractAmount",
+        ], axis=1, inplace=True)
 
-    return dataFrame
+    return df
 
 
 # 生成策略参数组合
