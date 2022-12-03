@@ -114,8 +114,28 @@ def splitTime(startTime, endTime, frequency):
     return time_ranges
 
 
-# 计算持仓情况
-def getBollingPosition(dataFrame, para):
+# 简单布林的参数组合
+def getParasBolling(levelList, maLengthList, timesList):
+    """
+    产生布林 策略的参数范围
+    :param levelList: k线周期
+    :param maLengthList: 中轨长度
+    :param timesList: 倍数
+    :return:
+    """
+    para_list = []
+
+    for l in levelList:
+        for m in maLengthList:
+            for n in timesList:
+                para = [l, m, n]
+                para_list.append(para)
+
+    return para_list
+
+
+# 简单布林策略信号计算
+def getPositionBolling(df, para):
     # para:
     # [maLength, times]
     # [400, 2]
@@ -124,113 +144,125 @@ def getBollingPosition(dataFrame, para):
     times = para[1]
 
     # 计算布林带上轨(upper)、中轨(ma)、下轨(lower)
-    dataFrame["ma"] = dataFrame["close"].rolling(maLength).mean()
-    dataFrame["stdDev"] = dataFrame["close"].rolling(maLength).std(ddof=0)
-    dataFrame["upper"] = dataFrame["ma"] + times * dataFrame["stdDev"]
-    dataFrame["lower"] = dataFrame["ma"] - times * dataFrame["stdDev"]
+    df["ma"] = df["close"].rolling(maLength).mean()
+    df["stdDev"] = df["close"].rolling(maLength).std(ddof=0)
+    df["upper"] = df["ma"] + times * df["stdDev"]
+    df["lower"] = df["ma"] - times * df["stdDev"]
 
     # 计算开多(收盘价上穿上轨，signal=1)、平多(收盘价下穿中轨，signal=0)
-    condLong1 = dataFrame["close"].shift(1) <= dataFrame["upper"].shift(1)
-    condLong2 = dataFrame["close"] > dataFrame["upper"]
-    dataFrame.loc[condLong1 & condLong2, "signalLong"] = 1
+    condLong1 = df["close"].shift(1) <= df["upper"].shift(1)
+    condLong2 = df["close"] > df["upper"]
+    df.loc[condLong1 & condLong2, "signalLong"] = 1
     
-    condCoverLong1 = dataFrame["close"].shift(1) >= dataFrame["ma"].shift(1)
-    condCoverLong2 = dataFrame["close"] < dataFrame["ma"]
-    dataFrame.loc[condCoverLong1 & condCoverLong2, "signalLong"] = 0
+    condCoverLong1 = df["close"].shift(1) >= df["ma"].shift(1)
+    condCoverLong2 = df["close"] < df["ma"]
+    df.loc[condCoverLong1 & condCoverLong2, "signalLong"] = 0
 
     # 计算开空(收盘价下穿下轨，signal=-1)、平空(收盘价上穿中轨，signal=0)
-    condShort1 = dataFrame["close"].shift(1) >= dataFrame["lower"].shift(1)
-    condShort2 = dataFrame["close"] < dataFrame["lower"]
-    dataFrame.loc[condShort1 & condShort2, "signalShort"] = -1
+    condShort1 = df["close"].shift(1) >= df["lower"].shift(1)
+    condShort2 = df["close"] < df["lower"]
+    df.loc[condShort1 & condShort2, "signalShort"] = -1
 
-    condCoverShort1 = dataFrame["close"].shift(1) <= dataFrame["ma"].shift(1)
-    condCoverShort2 = dataFrame["close"] > dataFrame["ma"]
-    dataFrame.loc[condCoverShort1 & condCoverShort2, "signalShort"] = 0
+    condCoverShort1 = df["close"].shift(1) <= df["ma"].shift(1)
+    condCoverShort2 = df["close"] > df["ma"]
+    df.loc[condCoverShort1 & condCoverShort2, "signalShort"] = 0
 
     # 填充signal的空白
-    # dataFrame["signal"].fillna(method="ffill", inplace=True)
-    # dataFrame["signal"].fillna(value=0, inplace=True)
-    dataFrame["signal"] = dataFrame[["signalLong", "signalShort"]].sum(axis=1, min_count=1, skipna=True)
-    temp = dataFrame[dataFrame["signal"].notnull()][["signal"]]
+    # df["signal"].fillna(method="ffill", inplace=True)
+    # df["signal"].fillna(value=0, inplace=True)
+    df["signal"] = df[["signalLong", "signalShort"]].sum(axis=1, min_count=1, skipna=True)
+    temp = df[df["signal"].notnull()][["signal"]]
     temp = temp[temp["signal"] != temp["signal"].shift(1)]
-    dataFrame["signal"] = temp["signal"]
-    dataFrame['signal'].fillna(method='ffill', inplace=True)
-    dataFrame['signal'].fillna(value=0, inplace=True)
+    df["signal"] = temp["signal"]
+    df['signal'].fillna(method='ffill', inplace=True)
+    df['signal'].fillna(value=0, inplace=True)
     # 计算持仓，在产生signal信号的k线结束时进行买入，因此持仓状态比signal信号k线晚一根k线
-    dataFrame["position"] = dataFrame["signal"].shift(1)
-    dataFrame["position"].fillna(value=0, inplace=True)
+    df["position"] = df["signal"].shift(1)
+    df["position"].fillna(value=0, inplace=True)
     
-    dataFrame.drop(["stdDev", "signal"], axis=1, inplace=True)
-    dataFrame.sort_values(by="openTimeGmt8", inplace=True)
-    dataFrame.drop_duplicates(subset="openTimeGmt8", keep="last", inplace=True)
+    df.drop(["stdDev", "signal"], axis=1, inplace=True)
+    df.sort_values(by="openTimeGmt8", inplace=True)
+    df.drop_duplicates(subset="openTimeGmt8", keep="last", inplace=True)
     
-    return dataFrame
+    return df
 
 
-# 优化后的布林带策略，考虑开仓点位与中轨距离
-def getBollingPositionOptimized(dataFrame, para=[400, 2, 0.03]):
+# 平均差布林的参数组合
+def getParasBollingMean(levelList, maLengthList, timesList):
+    """
+    产生布林 策略的参数范围
+    :param levelList: k线周期
+    :param maLengthList: 中轨长度
+    :param timesList: 倍数
+    :return:
+    """
+    para_list = []
+
+    for l in levelList:
+        for m in maLengthList:
+            for n in timesList:
+                para = [l, m, n]
+                para_list.append(para)
+
+    return para_list
+
+
+# 平均差布林策略信号计算
+def getPositionBollingMean(df, para):
     # para:
-    # [maLength, times, n]
-    # [400, 2, 0.03]
-    # 当出现开仓信号，但是此时开仓信号距离中轨距离超过n%，则保持开仓信号，等到距离下降至n%以下再开仓
-    # 如果中间出现其他信号，则放弃保持的开仓信号
-
+    # [maLength, times]
+    # [400, 2]
     
     maLength = para[0]
     times = para[1]
 
     # 计算布林带上轨(upper)、中轨(ma)、下轨(lower)
-    dataFrame["ma"] = dataFrame["close"].rolling(maLength).mean()
-    dataFrame["stdDev"] = dataFrame["close"].rolling(maLength).std(ddof=0)
-    dataFrame["upper"] = dataFrame["ma"] + times * dataFrame["stdDev"]
-    dataFrame["lower"] = dataFrame["ma"] - times * dataFrame["stdDev"]
-
-    # 计算价格与中轨距离
-    dataFrame["dist"] = abs(dataFrame["close"] / dataFrame["ma"] - 1)
-    print(dataFrame.tail(50))
-    raise
-
+    df["ma"] = df["close"].rolling(maLength).mean()
+    df["diff"] = abs(df["close"] - df["ma"])
+    df["diffMean"] = df["diff"].rolling(maLength).mean()
+    df["upper"] = df["ma"] + times * df["diffMean"]
+    df["lower"] = df["ma"] - times * df["diffMean"]
 
     # 计算开多(收盘价上穿上轨，signal=1)、平多(收盘价下穿中轨，signal=0)
-    condLong1 = dataFrame["close"].shift(1) <= dataFrame["upper"].shift(1)
-    condLong2 = dataFrame["close"] > dataFrame["upper"]
-    dataFrame.loc[condLong1 & condLong2, "signalLong"] = 1
+    condLong1 = df["close"].shift(1) <= df["upper"].shift(1)
+    condLong2 = df["close"] > df["upper"]
+    df.loc[condLong1 & condLong2, "signalLong"] = 1
     
-    condCoverLong1 = dataFrame["close"].shift(1) >= dataFrame["ma"].shift(1)
-    condCoverLong2 = dataFrame["close"] < dataFrame["ma"]
-    dataFrame.loc[condCoverLong1 & condCoverLong2, "signalLong"] = 0
+    condCoverLong1 = df["close"].shift(1) >= df["ma"].shift(1)
+    condCoverLong2 = df["close"] < df["ma"]
+    df.loc[condCoverLong1 & condCoverLong2, "signalLong"] = 0
 
     # 计算开空(收盘价下穿下轨，signal=-1)、平空(收盘价上穿中轨，signal=0)
-    condShort1 = dataFrame["close"].shift(1) >= dataFrame["lower"].shift(1)
-    condShort2 = dataFrame["close"] < dataFrame["lower"]
-    dataFrame.loc[condShort1 & condShort2, "signalShort"] = -1
+    condShort1 = df["close"].shift(1) >= df["lower"].shift(1)
+    condShort2 = df["close"] < df["lower"]
+    df.loc[condShort1 & condShort2, "signalShort"] = -1
 
-    condCoverShort1 = dataFrame["close"].shift(1) <= dataFrame["ma"].shift(1)
-    condCoverShort2 = dataFrame["close"] > dataFrame["ma"]
-    dataFrame.loc[condCoverShort1 & condCoverShort2, "signalShort"] = 0
+    condCoverShort1 = df["close"].shift(1) <= df["ma"].shift(1)
+    condCoverShort2 = df["close"] > df["ma"]
+    df.loc[condCoverShort1 & condCoverShort2, "signalShort"] = 0
 
     # 填充signal的空白
-    # dataFrame["signal"].fillna(method="ffill", inplace=True)
-    # dataFrame["signal"].fillna(value=0, inplace=True)
-    dataFrame["signal"] = dataFrame[["signalLong", "signalShort"]].sum(axis=1, min_count=1, skipna=True)
-    temp = dataFrame[dataFrame["signal"].notnull()][["signal"]]
+    # df["signal"].fillna(method="ffill", inplace=True)
+    # df["signal"].fillna(value=0, inplace=True)
+    df["signal"] = df[["signalLong", "signalShort"]].sum(axis=1, min_count=1, skipna=True)
+    temp = df[df["signal"].notnull()][["signal"]]
     temp = temp[temp["signal"] != temp["signal"].shift(1)]
-    dataFrame["signal"] = temp["signal"]
-    dataFrame['signal'].fillna(method='ffill', inplace=True)
-    dataFrame['signal'].fillna(value=0, inplace=True)
+    df["signal"] = temp["signal"]
+    df['signal'].fillna(method='ffill', inplace=True)
+    df['signal'].fillna(value=0, inplace=True)
     # 计算持仓，在产生signal信号的k线结束时进行买入，因此持仓状态比signal信号k线晚一根k线
-    dataFrame["position"] = dataFrame["signal"].shift(1)
-    dataFrame["position"].fillna(value=0, inplace=True)
+    df["position"] = df["signal"].shift(1)
+    df["position"].fillna(value=0, inplace=True)
     
-    dataFrame.drop(["stdDev", "signal"], axis=1, inplace=True)
-    dataFrame.sort_values(by="openTimeGmt8", inplace=True)
-    dataFrame.drop_duplicates(subset="openTimeGmt8", keep="last", inplace=True)
+    df.drop(["diff", "signal"], axis=1, inplace=True)
+    df.sort_values(by="openTimeGmt8", inplace=True)
+    df.drop_duplicates(subset="openTimeGmt8", keep="last", inplace=True)
     
-    return dataFrame
+    return df
 
 
 # 计算资金曲线
-def getBollingEquity(df, para):
+def getEquity(df, para):
     # para:
     # { "cash": 1000,
     #   "faceValue": 0.001,
@@ -317,47 +349,6 @@ def getBollingEquity(df, para):
         ], axis=1, inplace=True)
 
     return df
-
-
-# 生成策略参数组合
-def getBollingParas(levelList, maLengthList, timesList):
-    """
-    产生布林 策略的参数范围
-    :param levelList: k线周期
-    :param maLengthList: 中轨长度
-    :param timesList: 倍数
-    :return:
-    """
-    para_list = []
-
-    for l in levelList:
-        for m in maLengthList:
-            for n in timesList:
-                para = [l, m, n]
-                para_list.append(para)
-
-    return para_list
-
-
-# 生成优化布林带的策略参数组合
-def getBollingParasOptimized(levelList, maLengthList, timesList, distList):
-    """
-    产生布林 策略的参数范围
-    :param levelList: k线周期
-    :param maLengthList: 中轨长度
-    :param timesList: 倍数
-    :return:
-    """
-    para_list = []
-
-    for l in levelList:
-        for m in maLengthList:
-            for n in timesList:
-                for o in distList:
-                    para = [l, m, n, o]
-                    para_list.append(para)
-
-    return para_list
 
 
 # 发送mixin通知

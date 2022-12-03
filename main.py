@@ -12,6 +12,7 @@ from tqdm import tqdm
 
 from functions import *
 from testConfig import *
+import functions
 
 pd.set_option("display.expand_frame_repr", False)
 pd.set_option("display.max_column", None)
@@ -32,24 +33,24 @@ def sigalTest(paraBolling, df, paraTrading, equityFilePath):
     _df = rebuildCandles(_df, levelTest)
 
     # 计算实际持仓
-    _df = getBollingPosition(_df, [maLength, times])
+    _df = getattr(functions, f"getPosition{STRATEGY}")(_df, [maLength, times])
 
     # 计算资金曲线
     # 选取相关时间。币种上线10天之后的日期
     # t = _df.iloc[0]['candle_begin_time'] + timedelta(days=drop_days)
     # _df = _df[_df['candle_begin_time'] > t]
     # 计算资金曲线
-    _df = getBollingEquity(_df, paraTrading)
+    _df = getEquity(_df, paraTrading)
 
     # 只存储满足期望盈亏比的数据，如果开了3倍杠杆，盈利倍数1.5，就只存储收益率大于4.5的数据
     # if _df.iloc[-1]["equityCurve"] > (paraTrading["leverage"] * plRate):
     # # if _df.iloc[-1]["equityCurve"] > 0:
-    #     equityFileName = f'{levelTest}_{maLength}_{times}_{round(_df.iloc[-1]["equityCurve"], 3)}.{equityFileFmt}'
+    #     equityFileName = f'{levelTest}_{maLength}_{times}_{round(_df.iloc[-1]["equityCurve"], 3)}.{SINGAL_TEST_FORMAT}'
     #     equityFile = os.path.join(equityFilePath, equityFileName)
     #     os.makedirs(equityFilePath, exist_ok=True)
-    #     if equityFileFmt == "csv":
+    #     if SINGAL_TEST_FORMAT == "csv":
     #         _df.to_csv(equityFile, index=False)
-    #     elif equityFileFmt == "hdf":
+    #     elif SINGAL_TEST_FORMAT == "hdf":
     #         _df.to_hdf(equityFile, index=False, mode="w", complevel=5, key="_df")
 
     # 计算收益指标：布林参数（testLevel周期、maLength均线长度、times倍数），
@@ -77,13 +78,23 @@ def sigalTest(paraBolling, df, paraTrading, equityFilePath):
             equityFirst = group.iloc[0]["equityCurve"]
             timeLast = group.iloc[-1]["openTimeGmt8"]
             timeFirst = group.iloc[0]["openTimeGmt8"]
+            upper = group.iloc[0]["upper"]
+            ma = group.iloc[0]["ma"]
             if equityLast - equityFirst > 0:
                 win.append(key)
             _temp.at[key, "profitRate"] = (equityLast/equityFirst-1) if equityFirst else 0
             _temp.at[key, "forHours"] = float((timeLast-timeFirst).seconds / 60 / 60)
+
+            #计算每单盈亏比，下单时的固定亏损就是到中轨的差值，用最终盈利除以固定亏损就是实际盈亏比
+            _temp.at[key, "plr"] = round(_temp.at[key, "profitRate"]/(upper/ma-1), 2)
     else:
         _temp["profitRate"] = 0
         _temp["forHours"] = 0
+        _temp["plr"] = 0
+    
+    # 计算平均盈亏比
+    rtn.loc[0, "盈亏比平均值"] = round(_temp["plr"].mean(),2)
+    rtn.loc[0, "盈亏比中位值"] = round(_temp["plr"].median(),2)
 
     # 计算连续盈利次数和连续亏损次数，将是否连续的辅助列用itertools.groupby运算得到连续次数
     _temp["profitRate"].fillna(0)
@@ -102,9 +113,9 @@ def sigalTest(paraBolling, df, paraTrading, equityFilePath):
     rtn.loc[0, "最大连续盈利次数"] = max(_t1) + 1 if _t1 else 0
     rtn.loc[0, "最大连续亏损次数"] = max(_t2) + 1 if _t2 else 0
 
-    rtn.loc[0, "最长持仓时间"] = round(_temp["forHours"].max(),1)
-    rtn.loc[0, "最短持仓时间"] = round(_temp.loc[_temp["forHours"]>0, "forHours"].min(),1)
-    rtn.loc[0, "平均持仓时间"] = round(_temp["forHours"].sum()/totalTrades,1) if totalTrades else 0
+    rtn.loc[0, "最长持仓小时"] = round(_temp["forHours"].max(),1)
+    rtn.loc[0, "最短持仓小时"] = round(_temp.loc[_temp["forHours"]>0, "forHours"].min(),1)
+    rtn.loc[0, "平均持仓小时"] = round(_temp["forHours"].sum()/totalTrades,1) if totalTrades else 0
         
     totalWins = len(win)
     rtn.loc[0, "胜率"] = round(totalWins/totalTrades, 2) if totalTrades else 0
@@ -128,65 +139,57 @@ def sigalTest(paraBolling, df, paraTrading, equityFilePath):
     ar = pow((eqLast-eqFirst), (250/days)) -1 if eqLast>eqFirst else 0
     rtn.loc[0, "年化收益"] = round(ar, 4)
     
-    # 收益回撤比、收益风险比 return/risk rate
-    rtn.loc[0, "收益风险比(年化/回撤)"] = abs(round(ar/drawdownMax, 4)) if drawdownMax else 999999
+    # 收益回撤比、收益风险比，(年化/回撤) return/risk rate
+    rtn.loc[0, "收益回撤比"] = abs(round(ar/drawdownMax, 4)) if drawdownMax else 0
 
     rtn = rtn[[
         "testLevel", "maLength", "times",
-        "最终净值", "年化收益", "最大回撤", "收益风险比(年化/回撤)",
+        "最终净值", "年化收益", "最大回撤", "收益回撤比", "盈亏比平均值", "盈亏比中位值", 
         "交易次数", "胜率", "最大连续盈利次数", "最大连续亏损次数", "平均每单盈利",
-        "最长持仓时间", "最短持仓时间", "平均持仓时间", 
+        "最长持仓小时", "最短持仓小时", "平均持仓小时", 
         "杠杆倍数", "是否爆仓","最大回撤发生时间",
     ]]
-    # print(f"_df:\n {_df}")
-    # print(f"_temp:\n{_temp}")
-    # print(f"rtn:\n{rtn}")
+
     return rtn
 
 def main(equityFilePath):
     init()  # 彩色字体初始化
     # 生成布林带所有参数组合
-    paraBollings = getBollingParas(levelList, maLengthList, timesList)
-    ex = ccxt.binance({
-        "options":{
-            "defaultType":"future",
-        },
-        "timeout": 1000,
-    })
+    paraBollings = getattr(functions, f"getParas{STRATEGY}")(PARA_LEVEL_LIST, PARA_MA_LIST, PARA_TIMES_LIST)
+    ex = ccxt.binance(EXCHANGE_CONFIG)
 
     # 如果没找到原始数据文件，就开始下载
-    if os.path.exists(dataFile) is False:
+    if os.path.exists(DATA_FILE) is False:
         print(Fore.RED+"Data file doesn0t exists, downloading..."+Fore.RESET)
-        df = getRecords(ex, symbol, levelBase, startTimeData, endTimeData)
-        writeRecordsToFile(df, dataFile, dataFileFmt)
+        df = getRecords(ex, SYMBOL, LEVEL, START_TIME_DATA, END_TIME_DATA)
+        writeRecordsToFile(df, DATA_FILE, DATA_FILE_FORMAT)
     # 如果有原始数据文件，就读取，并且只使用“使用数据起止时间”内的数据
     else:
-        print(Fore.GREEN+f"Loading data file:{Fore.RESET} {dataFile}")
-        if dataFileFmt == "hdf":
-            df = pd.read_hdf(dataFile, parse_dates=["openTimeGmt8"])
+        print(Fore.GREEN+f"Loading data file:{Fore.RESET} {DATA_FILE}")
+        if DATA_FILE_FORMAT == "hdf":
+            df = pd.read_hdf(DATA_FILE, parse_dates=["openTimeGmt8"])
         
-        elif dataFileFmt == "csv":
-            df = pd.read_csv(dataFile, parse_dates=["openTimeGmt8"])
+        elif DATA_FILE_FORMAT == "csv":
+            df = pd.read_csv(DATA_FILE, parse_dates=["openTimeGmt8"])
         
-        df = df[(df["openTimeGmt8"]>=pd.to_datetime(startTimeUse)) & (df["openTimeGmt8"]<=pd.to_datetime(endTimeUse))]
+        df = df[(df["openTimeGmt8"]>=pd.to_datetime(START_TIME_TEST)) & (df["openTimeGmt8"]<=pd.to_datetime(END_TIME_TEST))]
 
     # 把固定参数先传进去，然后把布林参数作为可变参数放进线程
     processMax = min(len(paraBollings), cpu_count())
     print(f"Opening {Fore.MAGENTA+str(processMax)} {Fore.RESET}processes...")
     # processMax = 1
-    callback = partial(sigalTest, df=df, paraTrading=paraTrading, equityFilePath=equityFilePath)
+    callback = partial(sigalTest, df=df, paraTrading=PARA_TRADING, equityFilePath=equityFilePath)
     with Pool(processes=processMax) as pool:
         dfList = pool.map(callback, tqdm(paraBollings, ncols=100))
         final = pd.concat(dfList, ignore_index=True)
         final.sort_values("最终净值", ascending=False, inplace=True)
         reportFile = os.path.join(equityFilePath, f"report_{t}.csv")
         final.to_csv(reportFile, index=False, encoding="GBK")
-        sendMixinMsg(f"Testback successfully:\n {strategy} {symbol}\n {startTimeUse}-{endTimeUse}\n total Paras: {len(paraBollings)}\n best Equity: {final['最终净值'].iat[0]}\n best para:\n {final[['testLevel', 'maLength', 'times']].iloc[0]}")
+        sendMixinMsg(f"Testback successfully:\n {STRATEGY} {SYMBOL}\n {START_TIME_TEST}-{END_TIME_TEST}\n total Paras: {len(paraBollings)}\n best Equity: {final['最终净值'].iat[0]}\n best para:\n {final[['testLevel', 'maLength', 'times']].iloc[0]}")
 
 
 if __name__ == "__main__":
     t = str(dt.datetime.now()).replace("-","").replace(" ","").replace(":", "")[:14]
-    # equityFilePath = f'dataStore\\{strategy}_equity\\{symbol.replace("/","-")}\\{t}'
-    equityFilePath = os.path.join("dataStore", f"{strategy}_equity", symbol.replace("/","-"), t)
+    equityFilePath = os.path.join("dataStore", f"{STRATEGY}_Equity", SYMBOL.replace("/","-"), t)
     os.makedirs(equityFilePath, exist_ok=True)
     main(equityFilePath)
