@@ -232,8 +232,8 @@ def getPositionBollingMean(df, para):
     return df
 
 
-# 布林增加延迟开仓
-def getPositionBollingDelay(df, para):
+# 布林增加延迟开仓，用的pipe，较慢
+def getPositionBollingDelay2(df, para):
     # para:
     # [maLength, times, percent]
     # [400, 2, 3]
@@ -305,6 +305,74 @@ def getPositionBollingDelay(df, para):
 
     return df
 
+
+# 布林增加延迟开仓
+def getPositionBollingDelay(df, para):
+    # para:
+    # [maLength, times, percent]
+    # [400, 2, 3]
+    # 产生开仓信号，并且，上轨或者下轨距离中轨的距离要小于percent，才开仓
+    
+    maLength = para[0]
+    times = para[1]
+    percent = para[2] / 100
+
+    # 计算布林带上轨(upper)、中轨(ma)、下轨(lower)
+    df["ma"] = df["close"].rolling(maLength).mean()
+    df["stdDev"] = df["close"].rolling(maLength).std(ddof=0)
+    df["upper"] = df["ma"] + times * df["stdDev"]
+    df["lower"] = df["ma"] - times * df["stdDev"]
+    df["dif"] = abs(df["close"] / df["ma"] - 1)
+
+    # 计算开多(收盘价上穿上轨，signal=1)、平多(收盘价下穿中轨，signal=0)
+    condLong1 = df["close"].shift(1) <= df["upper"].shift(1)
+    condLong2 = df["close"] > df["upper"]
+    df.loc[condLong1 & condLong2, "signalLong"] = 1
+    
+    condCoverLong1 = df["close"].shift(1) >= df["ma"].shift(1)
+    condCoverLong2 = df["close"] < df["ma"]
+    df.loc[condCoverLong1 & condCoverLong2, "signalLong"] = 0
+
+    # 计算开空(收盘价下穿下轨，signal=-1)、平空(收盘价上穿中轨，signal=0)
+    condShort1 = df["close"].shift(1) >= df["lower"].shift(1)
+    condShort2 = df["close"] < df["lower"]
+    df.loc[condShort1 & condShort2, "signalShort"] = -1
+
+    condCoverShort1 = df["close"].shift(1) <= df["ma"].shift(1)
+    condCoverShort2 = df["close"] > df["ma"]
+    df.loc[condCoverShort1 & condCoverShort2, "signalShort"] = 0
+
+    # 填充signal的空白
+    # df["signal"].fillna(method="ffill", inplace=True)
+    # df["signal"].fillna(value=0, inplace=True)
+    df["signal"] = df[["signalLong", "signalShort"]].sum(axis=1, min_count=1, skipna=True)
+    temp = df[df["signal"].notnull()][["signal"]]
+    temp = temp[temp["signal"] != temp["signal"].shift(1)]
+    df["signal"] = temp["signal"]
+
+    # 修改开仓信号，增加延迟开仓的约束
+    df["signal2"] = df["signal"]
+    # 复制一个新的信号列，并复制填充，形成一个信号向下连续的信号列
+    df["signal2"].fillna(method="ffill", inplace=True)
+    # 把原信号列中1、-1的信号清空，等待用复制列的信号反填充回来
+    df.loc[df["signal"]!=0, "signal"] = None
+    # 只有在满足percent约束且是1、-1信号时，才将复制信号列反填充回来
+    # 由于新的信号列经过了ffill的填充，也就实现了向下复制信号的效果
+    cond1 = df["signal2"] == 1
+    cond2 = df["signal2"] == -1
+    df.loc[(cond1 | cond2)&(df["dif"]<=percent), "signal"] = df["signal2"]
+
+    df['signal'].fillna(method='ffill', inplace=True)
+    df['signal'].fillna(value=0, inplace=True)
+    # 计算持仓，在产生signal信号的k线结束时进行买入，因此持仓状态比signal信号k线晚一根k线
+    df["position"] = df["signal"].shift(1)
+    df["position"].fillna(value=0, inplace=True)
+    
+    df.drop(["stdDev", "signal"], axis=1, inplace=True)
+    df.sort_values(by="openTimeGmt8", inplace=True)
+    df.drop_duplicates(subset="openTimeGmt8", keep="last", inplace=True)
+    
+    return df
 
 # 计算资金曲线
 def getEquity(df, para):
@@ -386,12 +454,12 @@ def getEquity(df, para):
     df["equityChange"].fillna(value=0, inplace=True)
     df["equityCurve"] = (1 + df["equityChange"]).cumprod()
 
-    df.drop(
-        [
-            "signalLong", "signalShort", "willLong", "willShort", "isInDiff",
-            "openCash", "priceMin", "fee", "profitMin", "netValueMin",
-            "marginRatio", "equityChange", "contractAmount",
-        ], axis=1, inplace=True)
+    df = df[[
+        "openTimeGmt8", "open", "high", "low", "close", "volume",
+        "ma", "upper", "lower",
+        "position", "actionTime",
+        "isFucked", "equityCurve",
+    ]]
 
     return df
 

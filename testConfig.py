@@ -8,13 +8,15 @@ STRATEGY = "BollingDelay"
 # PARA_LEVEL_LIST = ["4h"]
 # PARA_MA_LIST=[180]
 # PARA_TIMES_LIST = [2.9]
-# PARA_PERCENT_LIST = [100]
+# PARA_PERCENT_LIST = [10]
 PARA_LEVEL_LIST = ["15m", "30m", "1h"]
 PARA_MA_LIST = range(10, 1000, 5)
-PARA_TIMES_LIST = [i/10 for i in range(10, 40, 1)]
+PARA_TIMES_LIST = [i/10 for i in range(10, 40)]
 PARA_PERCENT_LIST = range(10, 50, 10)
-PARAS_LIST = [PARA_LEVEL_LIST, PARA_MA_LIST, PARA_TIMES_LIST, PARA_PERCENT_LIST]
+
 # PARAS_LIST = [PARA_LEVEL_LIST, PARA_MA_LIST, PARA_TIMES_LIST]
+PARAS_LIST = [PARA_LEVEL_LIST, PARA_MA_LIST, PARA_TIMES_LIST, PARA_PERCENT_LIST]
+
 
 # 测试数据的起止时间
 START_TIME_TEST = "2020-10-01 00:00:00"
@@ -23,7 +25,7 @@ END_TIME_TEST = "2022-12-03 00:00:00"
 # 单个参数测试结果的格式
 SINGAL_TEST_FORMAT = "csv"
 
-# 期望盈利目标（倍数），不满足该倍数的结果不保存
+# 期望盈利目标（倍数），不满足该倍数的结果不保存，0不限制全保存
 PL_RATE = 0
 
 # 原始数据的k线级别
