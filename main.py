@@ -22,18 +22,17 @@ pd.set_option("display.unicode.east_asian_width", True)
 
 
 # 单次计算，受python多线程传参限制，第一个参数布林参数可变，后面都是固定参数
-def sigalTest(paraBolling, df, paraTrading, equityFilePath):
+def sigalTest(para, df, paraTrading, equityFilePath):
     # print(f"paras: {paraBolling}")
     _df = df.copy()
-    levelTest = paraBolling[0]
-    maLength = paraBolling[1]
-    times = paraBolling[2]
+    levelTest = para[0]
+    para = para[1:]
 
     # 合并k线
     _df = rebuildCandles(_df, levelTest)
 
-    # 计算实际持仓
-    _df = getattr(functions, f"getPosition{STRATEGY}")(_df, [maLength, times])
+    # 策略信号计算持仓
+    _df = getattr(functions, f"getPosition{STRATEGY}")(_df, para)
 
     # 计算资金曲线
     # 选取相关时间。币种上线10天之后的日期
@@ -43,22 +42,23 @@ def sigalTest(paraBolling, df, paraTrading, equityFilePath):
     _df = getEquity(_df, paraTrading)
 
     # 只存储满足期望盈亏比的数据，如果开了3倍杠杆，盈利倍数1.5，就只存储收益率大于4.5的数据
-    # if _df.iloc[-1]["equityCurve"] > (paraTrading["leverage"] * plRate):
-    # # if _df.iloc[-1]["equityCurve"] > 0:
-    #     equityFileName = f'{levelTest}_{maLength}_{times}_{round(_df.iloc[-1]["equityCurve"], 3)}.{SINGAL_TEST_FORMAT}'
-    #     equityFile = os.path.join(equityFilePath, equityFileName)
-    #     os.makedirs(equityFilePath, exist_ok=True)
-    #     if SINGAL_TEST_FORMAT == "csv":
-    #         _df.to_csv(equityFile, index=False)
-    #     elif SINGAL_TEST_FORMAT == "hdf":
-    #         _df.to_hdf(equityFile, index=False, mode="w", complevel=5, key="_df")
+    if _df.iloc[-1]["equityCurve"] >= (paraTrading["leverage"] * PL_RATE):
+    # if _df.iloc[-1]["equityCurve"] >= 0:
+        equityFileName = f'{levelTest}_{para}_{round(_df.iloc[-1]["equityCurve"], 3)}.{SINGAL_TEST_FORMAT}'
+        equityFile = os.path.join(equityFilePath, equityFileName)
+        os.makedirs(equityFilePath, exist_ok=True)
+        if SINGAL_TEST_FORMAT == "csv":
+            _df.to_csv(equityFile, index=False)
+        elif SINGAL_TEST_FORMAT == "hdf":
+            _df.to_hdf(equityFile, index=False, mode="w", complevel=5, key="_df")
 
     # 计算收益指标：布林参数（testLevel周期、maLength均线长度、times倍数），
     # finalEquity最终收益率，leverage杠杆倍数，isFucked爆仓次数，totalTrades交易次数，winRate胜率
     rtn = pd.DataFrame()
-    rtn.loc[0, "testLevel"] = levelTest
-    rtn.loc[0, "maLength"] = maLength
-    rtn.loc[0, "times"] = times
+    rtn.loc[0, "周期"] = levelTest
+    rtn["参数"] = None
+    rtn["参数"] = rtn["参数"].astype("object")
+    rtn.at[0, "参数"] = para
     rtn.loc[0, '最终净值'] = round(_df.iloc[-1]['equityCurve'], 3)
     rtn.loc[0, "杠杆倍数"] = paraTrading["leverage"]
     rtn.loc[0, "是否爆仓"] = len(_df.loc[_df["isFucked"]==1])
@@ -143,7 +143,7 @@ def sigalTest(paraBolling, df, paraTrading, equityFilePath):
     rtn.loc[0, "收益回撤比"] = abs(round(ar/drawdownMax, 4)) if drawdownMax else 0
 
     rtn = rtn[[
-        "testLevel", "maLength", "times",
+        "周期", "参数",
         "最终净值", "年化收益", "最大回撤", "收益回撤比", "盈亏比平均值", "盈亏比中位值", 
         "交易次数", "胜率", "最大连续盈利次数", "最大连续亏损次数", "平均每单盈利",
         "最长持仓小时", "最短持仓小时", "平均持仓小时", 
@@ -155,7 +155,7 @@ def sigalTest(paraBolling, df, paraTrading, equityFilePath):
 def main(equityFilePath):
     init()  # 彩色字体初始化
     # 生成布林带所有参数组合
-    paraBollings = getattr(functions, f"getParas{STRATEGY}")(PARA_LEVEL_LIST, PARA_MA_LIST, PARA_TIMES_LIST)
+    parasList = getParas(PARAS_LIST)
     ex = ccxt.binance(EXCHANGE_CONFIG)
 
     # 如果没找到原始数据文件，就开始下载
@@ -175,17 +175,17 @@ def main(equityFilePath):
         df = df[(df["openTimeGmt8"]>=pd.to_datetime(START_TIME_TEST)) & (df["openTimeGmt8"]<=pd.to_datetime(END_TIME_TEST))]
 
     # 把固定参数先传进去，然后把布林参数作为可变参数放进线程
-    processMax = min(len(paraBollings), cpu_count())
+    processMax = min(len(parasList), cpu_count())
     print(f"Opening {Fore.MAGENTA+str(processMax)} {Fore.RESET}processes...")
     # processMax = 1
     callback = partial(sigalTest, df=df, paraTrading=PARA_TRADING, equityFilePath=equityFilePath)
     with Pool(processes=processMax) as pool:
-        dfList = pool.map(callback, tqdm(paraBollings, ncols=100))
+        dfList = pool.map(callback, tqdm(parasList, ncols=100))
         final = pd.concat(dfList, ignore_index=True)
         final.sort_values("最终净值", ascending=False, inplace=True)
         reportFile = os.path.join(equityFilePath, f"report_{t}.csv")
         final.to_csv(reportFile, index=False, encoding="GBK")
-        sendMixinMsg(f"Testback successfully:\n {STRATEGY} {SYMBOL}\n {START_TIME_TEST}-{END_TIME_TEST}\n total Paras: {len(paraBollings)}\n best Equity: {final['最终净值'].iat[0]}\n best para:\n {final[['testLevel', 'maLength', 'times']].iloc[0]}")
+        sendMixinMsg(f"Testback successfully:\n {STRATEGY} {SYMBOL}\n {START_TIME_TEST}-{END_TIME_TEST}\n total Paras: {len(parasList)}\n best Equity: {final['最终净值'].iat[0]}\n best para:\n {final[['周期', '参数']].iloc[0]}")
 
 
 if __name__ == "__main__":

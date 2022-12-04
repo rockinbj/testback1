@@ -1,13 +1,19 @@
 import datetime as dt
 import time
+from itertools import product
 
 import numpy as np
 import pandas as pd
 import requests
 
-sleepShort = 0.3
-sleepMedium = 3
-sleepLong = 9
+from testConfig import *
+
+pd.set_option("display.expand_frame_repr", False)
+pd.set_option("display.max_column", None)
+pd.set_option("display.max_rows", 5000)
+pd.set_option("display.unicode.ambiguous_as_wide", True)
+pd.set_option("display.unicode.east_asian_width", True)
+
 
 # 获取交易所原始数据
 def getRecords(ex, symbol, level, startTime, endTime):
@@ -26,7 +32,7 @@ def getRecords(ex, symbol, level, startTime, endTime):
         endTime = pd.to_datetime(endTime)
         if t >= endTime or len(data) <= 1: break
         sinceTime = str(t)
-        time.sleep(sleepShort)
+        time.sleep(SLEEP_SHORT)
     
     # 把临时list转换成pandas数据并对列命名，直接返回空数据组
     dfList =  pd.DataFrame(dfList, dtype=float)
@@ -114,24 +120,9 @@ def splitTime(startTime, endTime, frequency):
     return time_ranges
 
 
-# 简单布林的参数组合
-def getParasBolling(levelList, maLengthList, timesList):
-    """
-    产生布林 策略的参数范围
-    :param levelList: k线周期
-    :param maLengthList: 中轨长度
-    :param timesList: 倍数
-    :return:
-    """
-    para_list = []
-
-    for l in levelList:
-        for m in maLengthList:
-            for n in timesList:
-                para = [l, m, n]
-                para_list.append(para)
-
-    return para_list
+# 生成所有参数组合
+def getParas(parasList):
+    return list(product(*parasList))
 
 
 # 简单布林策略信号计算
@@ -187,26 +178,6 @@ def getPositionBolling(df, para):
     return df
 
 
-# 平均差布林的参数组合
-def getParasBollingMean(levelList, maLengthList, timesList):
-    """
-    产生布林 策略的参数范围
-    :param levelList: k线周期
-    :param maLengthList: 中轨长度
-    :param timesList: 倍数
-    :return:
-    """
-    para_list = []
-
-    for l in levelList:
-        for m in maLengthList:
-            for n in timesList:
-                para = [l, m, n]
-                para_list.append(para)
-
-    return para_list
-
-
 # 平均差布林策略信号计算
 def getPositionBollingMean(df, para):
     # para:
@@ -258,6 +229,80 @@ def getPositionBollingMean(df, para):
     df.sort_values(by="openTimeGmt8", inplace=True)
     df.drop_duplicates(subset="openTimeGmt8", keep="last", inplace=True)
     
+    return df
+
+
+# 布林增加延迟开仓
+def getPositionBollingDelay(df, para):
+    # para:
+    # [maLength, times, percent]
+    # [400, 2, 3]
+    # 产生开仓信号，并且，上轨或者下轨距离中轨的距离要小于percent，才开仓
+    
+    maLength = para[0]
+    times = para[1]
+    percent = para[2]
+
+    # 计算布林带上轨(upper)、中轨(ma)、下轨(lower)
+    df["ma"] = df["close"].rolling(maLength).mean()
+    df["stdDev"] = df["close"].rolling(maLength).std(ddof=0)
+    df["upper"] = df["ma"] + (times * df["stdDev"])
+    df["lower"] = df["ma"] - (times * df["stdDev"])
+    df["diff"] = abs(df["close"] / df["ma"] - 1)
+    df["isInDiff"] = df["diff"].map(lambda x: 1 if x<(percent/100) else 0)
+
+    # 计算开多(收盘价上穿上轨，signal=1)、平多(收盘价下穿中轨，signal=0)
+    condLong1 = df["close"].shift(1) <= df["upper"].shift(1)
+    condLong2 = df["close"] > df["upper"]
+    df.loc[condLong1 & condLong2, "willLong"] = 1
+    
+    condCoverLong1 = df["close"].shift(1) >= df["ma"].shift(1)
+    condCoverLong2 = df["close"] < df["ma"]
+    df.loc[condCoverLong1 & condCoverLong2, "signalLong"] = 0
+
+    # 计算开空(收盘价下穿下轨，signal=-1)、平空(收盘价上穿中轨，signal=0)
+    condShort1 = df["close"].shift(1) >= df["lower"].shift(1)
+    condShort2 = df["close"] < df["lower"]
+    df.loc[condShort1 & condShort2, "willShort"] = -1
+
+    condCoverShort1 = df["close"].shift(1) <= df["ma"].shift(1)
+    condCoverShort2 = df["close"] > df["ma"]
+    df.loc[condCoverShort1 & condCoverShort2, "signalShort"] = 0
+    
+    # 满足开仓条件时willLong置1，如果此时距离参数isInDiff为0，则复制willLong直到isInDiff为1
+    def copyWillLongTillInDiff(_df1):
+        for i,r in _df1.iterrows():
+            preDiff = _df1.loc[max(i-1,0), "isInDiff"]
+            preWillLong = _df1.loc[max(i-1,0), "willLong"]
+            preWillShort = _df1.loc[max(i-1,0), "willShort"]
+            if (preDiff==0 and preWillLong==1):
+                _df1.loc[i, "willLong"] = _df1.loc[i-1, "willLong"]
+            if (preDiff==0 and preWillShort==-1):
+                _df1.loc[i, "willShort"] = _df1.loc[i-1, "willShort"]
+
+    df.pipe(copyWillLongTillInDiff)
+
+    # 当willLong(Short)和isInDiff都为1时，触发signalLong(Short)
+    df.loc[(df["willLong"]==1)&(df["isInDiff"]==1), "signalLong"] = 1
+    df.loc[(df["willShort"]==-1)&(df["isInDiff"]==1), "signalShort"] = -1
+    
+    # 填充signal的空白
+    # df["signal"].fillna(method="ffill", inplace=True)
+    # df["signal"].fillna(value=0, inplace=True)
+    df["signal"] = df[["signalLong", "signalShort"]].sum(axis=1, min_count=1, skipna=True)
+    temp = df[df["signal"].notnull()][["signal"]]
+    temp = temp[temp["signal"] != temp["signal"].shift(1)]
+    df["signal"] = temp["signal"]
+    df['signal'].fillna(method='ffill', inplace=True)
+    df['signal'].fillna(value=0, inplace=True)
+    # 计算持仓，在产生signal信号的k线结束时进行买入，因此持仓状态比signal信号k线晚一根k线
+    df["position"] = df["signal"].shift(1)
+    df["position"].fillna(value=0, inplace=True)
+    
+    df.drop(["stdDev", "signal"], axis=1, inplace=True)
+    df.sort_values(by="openTimeGmt8", inplace=True)
+    df.drop_duplicates(subset="openTimeGmt8", keep="last", inplace=True)
+
     return df
 
 
@@ -343,8 +388,8 @@ def getEquity(df, para):
 
     df.drop(
         [
-            "signalLong", "signalShort", "openCash", 
-            "priceMin", "fee", "profitMin", "netValueMin",
+            # "signalLong", "signalShort", 
+            "openCash", "priceMin", "fee", "profitMin", "netValueMin",
             "marginRatio", "equityChange", "contractAmount",
         ], axis=1, inplace=True)
 
