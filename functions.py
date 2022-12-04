@@ -388,7 +388,7 @@ def getEquity(df, para):
 
     df.drop(
         [
-            # "signalLong", "signalShort", 
+            "signalLong", "signalShort", "willLong", "willShort", "isInDiff",
             "openCash", "priceMin", "fee", "profitMin", "netValueMin",
             "marginRatio", "equityChange", "contractAmount",
         ], axis=1, inplace=True)

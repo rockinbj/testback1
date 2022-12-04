@@ -42,15 +42,15 @@ def sigalTest(para, df, paraTrading, equityFilePath):
     _df = getEquity(_df, paraTrading)
 
     # 只存储满足期望盈亏比的数据，如果开了3倍杠杆，盈利倍数1.5，就只存储收益率大于4.5的数据
-    if _df.iloc[-1]["equityCurve"] >= (paraTrading["leverage"] * PL_RATE):
-    # if _df.iloc[-1]["equityCurve"] >= 0:
-        equityFileName = f'{levelTest}_{para}_{round(_df.iloc[-1]["equityCurve"], 3)}.{SINGAL_TEST_FORMAT}'
-        equityFile = os.path.join(equityFilePath, equityFileName)
-        os.makedirs(equityFilePath, exist_ok=True)
-        if SINGAL_TEST_FORMAT == "csv":
-            _df.to_csv(equityFile, index=False)
-        elif SINGAL_TEST_FORMAT == "hdf":
-            _df.to_hdf(equityFile, index=False, mode="w", complevel=5, key="_df")
+    # if _df.iloc[-1]["equityCurve"] >= (paraTrading["leverage"] * PL_RATE):
+    # # if _df.iloc[-1]["equityCurve"] >= 0:
+    #     equityFileName = f'{levelTest}_{para}_{round(_df.iloc[-1]["equityCurve"], 3)}.{SINGAL_TEST_FORMAT}'
+    #     equityFile = os.path.join(equityFilePath, equityFileName)
+    #     os.makedirs(equityFilePath, exist_ok=True)
+    #     if SINGAL_TEST_FORMAT == "csv":
+    #         _df.to_csv(equityFile, index=False)
+    #     elif SINGAL_TEST_FORMAT == "hdf":
+    #         _df.to_hdf(equityFile, index=False, mode="w", complevel=5, key="_df")
 
     # 计算收益指标：布林参数（testLevel周期、maLength均线长度、times倍数），
     # finalEquity最终收益率，leverage杠杆倍数，isFucked爆仓次数，totalTrades交易次数，winRate胜率
