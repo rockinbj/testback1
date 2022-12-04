@@ -31,8 +31,11 @@ def sigalTest(para, df, paraTrading, equityFilePath):
     # 合并k线
     _df = rebuildCandles(_df, levelTest)
 
-    # 策略信号计算持仓
-    _df = getattr(functions, f"getPosition{STRATEGY}")(_df, para)
+    # 产生策略信号
+    _df = getattr(functions, f"getSignal{STRATEGY}")(_df, para)
+    
+    # 根据信号计算持仓
+    _df = getPosition(_df)
 
     # 计算资金曲线
     # 选取相关时间。币种上线10天之后的日期
@@ -77,23 +80,23 @@ def sigalTest(para, df, paraTrading, equityFilePath):
             equityFirst = group.iloc[0]["equityCurve"]
             timeLast = group.iloc[-1]["openTimeGmt8"]
             timeFirst = group.iloc[0]["openTimeGmt8"]
-            upper = group.iloc[0]["upper"]
-            ma = group.iloc[0]["ma"]
+            # upper = group.iloc[0]["upper"]
+            # ma = group.iloc[0]["ma"]
             if equityLast - equityFirst > 0:
                 win.append(key)
             _temp.at[key, "profitRate"] = (equityLast/equityFirst-1) if equityFirst else 0
             _temp.at[key, "forHours"] = float((timeLast-timeFirst).seconds / 60 / 60)
 
-            #计算每单盈亏比，下单时的固定亏损就是到中轨的差值，用最终盈利除以固定亏损就是实际盈亏比
-            _temp.at[key, "plr"] = round(_temp.at[key, "profitRate"]/(upper/ma-1), 2)
+            # #计算每单盈亏比，下单时的固定亏损就是到中轨的差值，用最终盈利除以固定亏损就是实际盈亏比
+            # _temp.at[key, "plr"] = round(_temp.at[key, "profitRate"]/(upper/ma-1), 2)
     else:
         _temp["profitRate"] = 0
         _temp["forHours"] = 0
-        _temp["plr"] = 0
+        # _temp["plr"] = 0
     
-    # 计算平均盈亏比
-    rtn.loc[0, "盈亏比平均值"] = round(_temp["plr"].mean(),2)
-    rtn.loc[0, "盈亏比中位值"] = round(_temp["plr"].median(),2)
+    # # 计算平均盈亏比
+    # rtn.loc[0, "盈亏比平均值"] = round(_temp["plr"].mean(),2)
+    # rtn.loc[0, "盈亏比中位值"] = round(_temp["plr"].median(),2)
 
     # 计算连续盈利次数和连续亏损次数，将是否连续的辅助列用itertools.groupby运算得到连续次数
     _temp["profitRate"].fillna(0)
@@ -125,10 +128,21 @@ def sigalTest(para, df, paraTrading, equityFilePath):
     _df["drawDown"] = _df["equityCurve"] / _df["equityPreMax"] - 1
 
     # 找到最大回撤和对应时间
-    drawdownMax = round(_df["drawDown"].min(), 4)
-    drawdownMaxTime = _df.set_index("openTimeGmt8")["drawDown"].idxmin()
-    rtn.loc[0, "最大回撤"] = drawdownMax
-    rtn.loc[0, "最大回撤发生时间"] = drawdownMaxTime
+    # drawdownMax = round(_df["drawDown"].min(), 4)
+    # drawdownMaxTime = _df.set_index("openTimeGmt8")["drawDown"].idxmin()
+    # rtn.loc[0, "最大回撤"] = drawdownMax
+    # rtn.loc[0, "最大回撤发生时间"] = drawdownMaxTime
+    # 找到最大回撤和对应时间
+    equity = _df[["openTimeGmt8", "equityCurve"]].copy()
+    equity["openTimeGmt8"] = pd.to_datetime(equity["openTimeGmt8"])
+    equity["max2here"] = equity["equityCurve"].expanding().max()
+    equity["dd2here"] = equity["equityCurve"] / equity["max2here"]
+    end_date, remains = tuple(equity.sort_values(by=["dd2here"]).iloc[0][["openTimeGmt8", "dd2here"]])
+    start_date = equity[equity["openTimeGmt8"] <= end_date].sort_values(by="equityCurve", ascending=False).iloc[0]["openTimeGmt8"]
+    
+    rtn.loc[0, "最大回撤"] = round((1-remains), 2)
+    rtn.loc[0, "最大回撤开始时间"] = start_date
+    rtn.loc[0, "最大回撤结束时间"] = end_date
 
     # 计算年化收益
     eqFirst = _df["equityCurve"].iat[0]
@@ -139,14 +153,16 @@ def sigalTest(para, df, paraTrading, equityFilePath):
     rtn.loc[0, "年化收益"] = round(ar, 4)
     
     # 收益回撤比、收益风险比，(年化/回撤) return/risk rate
-    rtn.loc[0, "收益回撤比"] = abs(round(ar/drawdownMax, 4)) if drawdownMax else 0
+    rtn.loc[0, "收益回撤比"] = abs(round(ar/rtn.loc[0, "最大回撤"], 4)) if rtn.loc[0, "最大回撤"] else 0
 
     rtn = rtn[[
         "周期", "参数",
-        "最终净值", "年化收益", "最大回撤", "收益回撤比", "盈亏比平均值", "盈亏比中位值", 
+        "最终净值", "年化收益", "最大回撤", "收益回撤比",
+        # "盈亏比平均值", "盈亏比中位值", 
         "交易次数", "胜率", "最大连续盈利次数", "最大连续亏损次数", "平均每单盈利",
         "最长持仓小时", "最短持仓小时", "平均持仓小时", 
-        "杠杆倍数", "是否爆仓","最大回撤发生时间",
+        "杠杆倍数", "是否爆仓",
+        "最大回撤开始时间", "最大回撤结束时间",
     ]]
 
     return rtn

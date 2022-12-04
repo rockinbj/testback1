@@ -126,7 +126,7 @@ def getParas(parasList):
 
 
 # 简单布林策略信号计算
-def getPositionBolling(df, para):
+def getSignalBolling(df, para):
     # para:
     # [maLength, times]
     # [400, 2]
@@ -158,28 +158,18 @@ def getPositionBolling(df, para):
     condCoverShort2 = df["close"] > df["ma"]
     df.loc[condCoverShort1 & condCoverShort2, "signalShort"] = 0
 
-    # 填充signal的空白
-    # df["signal"].fillna(method="ffill", inplace=True)
-    # df["signal"].fillna(value=0, inplace=True)
     df["signal"] = df[["signalLong", "signalShort"]].sum(axis=1, min_count=1, skipna=True)
     temp = df[df["signal"].notnull()][["signal"]]
     temp = temp[temp["signal"] != temp["signal"].shift(1)]
     df["signal"] = temp["signal"]
     df['signal'].fillna(method='ffill', inplace=True)
     df['signal'].fillna(value=0, inplace=True)
-    # 计算持仓，在产生signal信号的k线结束时进行买入，因此持仓状态比signal信号k线晚一根k线
-    df["position"] = df["signal"].shift(1)
-    df["position"].fillna(value=0, inplace=True)
-    
-    df.drop(["stdDev", "signal"], axis=1, inplace=True)
-    df.sort_values(by="openTimeGmt8", inplace=True)
-    df.drop_duplicates(subset="openTimeGmt8", keep="last", inplace=True)
     
     return df
 
 
 # 平均差布林策略信号计算
-def getPositionBollingMean(df, para):
+def getSignalBollingMean(df, para):
     # para:
     # [maLength, times]
     # [400, 2]
@@ -221,19 +211,12 @@ def getPositionBollingMean(df, para):
     df["signal"] = temp["signal"]
     df['signal'].fillna(method='ffill', inplace=True)
     df['signal'].fillna(value=0, inplace=True)
-    # 计算持仓，在产生signal信号的k线结束时进行买入，因此持仓状态比signal信号k线晚一根k线
-    df["position"] = df["signal"].shift(1)
-    df["position"].fillna(value=0, inplace=True)
-    
-    df.drop(["diff", "signal"], axis=1, inplace=True)
-    df.sort_values(by="openTimeGmt8", inplace=True)
-    df.drop_duplicates(subset="openTimeGmt8", keep="last", inplace=True)
     
     return df
 
 
 # 布林增加延迟开仓，用的pipe，较慢
-def getPositionBollingDelay2(df, para):
+def getSignalBollingDelay2(df, para):
     # para:
     # [maLength, times, percent]
     # [400, 2, 3]
@@ -295,19 +278,12 @@ def getPositionBollingDelay2(df, para):
     df["signal"] = temp["signal"]
     df['signal'].fillna(method='ffill', inplace=True)
     df['signal'].fillna(value=0, inplace=True)
-    # 计算持仓，在产生signal信号的k线结束时进行买入，因此持仓状态比signal信号k线晚一根k线
-    df["position"] = df["signal"].shift(1)
-    df["position"].fillna(value=0, inplace=True)
-    
-    df.drop(["stdDev", "signal"], axis=1, inplace=True)
-    df.sort_values(by="openTimeGmt8", inplace=True)
-    df.drop_duplicates(subset="openTimeGmt8", keep="last", inplace=True)
 
     return df
 
 
 # 布林增加延迟开仓
-def getPositionBollingDelay(df, para):
+def getSignalBollingDelay(df, para):
     # para:
     # [maLength, times, percent]
     # [400, 2, 3]
@@ -364,15 +340,66 @@ def getPositionBollingDelay(df, para):
 
     df['signal'].fillna(method='ffill', inplace=True)
     df['signal'].fillna(value=0, inplace=True)
+    
+    return df
+
+
+def getSignalSma3(df, para):
+    ma1Len = para[0]
+    ma2Len = para[1]
+    ma3Len = para[2]
+    dist = para[3] / 100
+
+    # 计算三均线，MA均线
+    # df["ma1"] = df["close"].rolling(ma1Len).mean()
+    # df["ma2"] = df["close"].rolling(ma2Len).mean()
+    # df["ma3"] = df["close"].rolling(ma3Len).mean()
+
+    # EMA均线
+    df["ma1"] = df["close"].ewm(span=ma1Len, adjust = False).mean()
+    df["ma2"] = df["close"].ewm(span=ma2Len, adjust = False).mean()
+    df["ma3"] = df["close"].ewm(span=ma3Len, adjust = False).mean()
+
+    # 做多平多信号，多头排列做多，ma1下穿ma2平多
+    condLong1 = df["ma1"] > df["ma2"]
+    condLong2 = df["ma2"] > df["ma3"]
+    condLong3 = (df["ma1"] / df["ma3"] - 1) > dist
+    df.loc[(condLong1&condLong2)&condLong3, "signalLong"] = 1
+
+    condCoverLong1 = df["ma1"].shift() > df["ma2"].shift()
+    condCoverLong2 = df["ma1"] < df["ma2"]
+    df.loc[condCoverLong1 & condCoverLong2, "signalLong"] = 0
+
+    condShort1 = df["ma1"] < df["ma2"]
+    condShort2 = df["ma2"] < df["ma3"]
+    condShort3 = (df["ma3"] / df["ma1"] -1) > dist
+    df.loc[(condShort1&condShort2)&condShort3, "signalShort"]  = -1
+
+    condCoverShort1 = df["ma1"].shift() < df["ma2"].shift()
+    condCoverShort2 = df["ma1"] > df["ma2"]
+    df.loc[condCoverShort1 & condCoverShort2, "signalShort"] = 0
+
+    df["signal"] = df[["signalLong", "signalShort"]].sum(axis=1, min_count=1, skipna=True)
+    temp = df[df["signal"].notnull()][["signal"]]
+    temp = temp[temp["signal"] != temp["signal"].shift(1)]
+    df["signal"] = temp["signal"]
+    df['signal'].fillna(method='ffill', inplace=True)
+    df['signal'].fillna(value=0, inplace=True)
+
+    return df
+
+
+def getPosition(df):
+    
     # 计算持仓，在产生signal信号的k线结束时进行买入，因此持仓状态比signal信号k线晚一根k线
     df["position"] = df["signal"].shift(1)
     df["position"].fillna(value=0, inplace=True)
-    
-    df.drop(["stdDev", "signal"], axis=1, inplace=True)
+
     df.sort_values(by="openTimeGmt8", inplace=True)
     df.drop_duplicates(subset="openTimeGmt8", keep="last", inplace=True)
-    
+
     return df
+
 
 # 计算资金曲线
 def getEquity(df, para):
@@ -454,12 +481,12 @@ def getEquity(df, para):
     df["equityChange"].fillna(value=0, inplace=True)
     df["equityCurve"] = (1 + df["equityChange"]).cumprod()
 
-    df = df[[
-        "openTimeGmt8", "open", "high", "low", "close", "volume",
-        "ma", "upper", "lower",
-        "position", "actionTime",
-        "isFucked", "equityCurve",
-    ]]
+    # df = df[[
+    #     "openTimeGmt8", "open", "high", "low", "close", "volume",
+    #     # "ma", "upper", "lower",
+    #     "position", "actionTime",
+    #     "isFucked", "equityCurve",
+    # ]]
 
     return df
 
