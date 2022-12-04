@@ -9,16 +9,16 @@ STRATEGY = "BollingDelay"
 # PARA_MA_LIST=[180]
 # PARA_TIMES_LIST = [2.9]
 # PARA_PERCENT_LIST = [100]
-PARA_LEVEL_LIST = ["5m", "15m", "30m", "1h", "4h", "1d"]
-PARA_MA_LIST = range(10, 2000, 5)
+PARA_LEVEL_LIST = ["15m", "30m", "1h"]
+PARA_MA_LIST = range(10, 1000, 5)
 PARA_TIMES_LIST = [i/10 for i in range(10, 40, 1)]
-PARA_PERCENT_LIST = range(1,100)
+PARA_PERCENT_LIST = range(5,50)
 PARAS_LIST = [PARA_LEVEL_LIST, PARA_MA_LIST, PARA_TIMES_LIST, PARA_PERCENT_LIST]
 # PARAS_LIST = [PARA_LEVEL_LIST, PARA_MA_LIST, PARA_TIMES_LIST]
 
 # 测试数据的起止时间
 START_TIME_TEST = "2020-10-01 00:00:00"
-END_TIME_TEST = "2022-12-01 00:00:00"
+END_TIME_TEST = "2022-12-03 00:00:00"
 
 # 单个参数测试结果的格式
 SINGAL_TEST_FORMAT = "csv"
@@ -30,11 +30,11 @@ PL_RATE = 0
 LEVEL = "5m"
 # 原始数据的起止时间
 START_TIME_DATA = "2020-10-01 00:00:00"
-END_TIME_DATA = "2022-12-01 00:00:00"
+END_TIME_DATA = "2022-12-03 00:00:00"
 # 原始数据文件的格式和命名
 DATA_FILE_FORMAT = "hdf"
-DATA_FILE = os.path.join("dataStore", "data_ETH-USDT_1m_20180101_20221110.hdf")
-# dataFile = os.path.join("dataStore", f'data_{symbol.replace("/","-")}_{levelBase}_{startTimeData.replace("-","").replace(" ","")[:8]}_{endTimeData.replace("-","").replace(" ","")[:8]}.{dataFileFmt}')
+# DATA_FILE = os.path.join("dataStore", "data_ETH-USDT_1m_20180101_20221110.hdf")
+DATA_FILE = os.path.join("dataStore", f'data_{SYMBOL.replace("/","-")}_{LEVEL}_{START_TIME_TEST.replace("-","").replace(" ","")[:8]}_{END_TIME_TEST.replace("-","").replace(" ","")[:8]}.{DATA_FILE_FORMAT}')
 
 # 交易所参数
 EXCHANGE_CONFIG = {
