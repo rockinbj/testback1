@@ -1,1 +1,1 @@
-pip install ccxt pandas colorama tables tqdm tables
+pip install ccxt pandas colorama tables tqdm tables pandas_ta
