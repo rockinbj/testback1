@@ -7,6 +7,7 @@ from itertools import groupby
 
 import ccxt
 import pandas as pd
+import pandas_ta as ta
 from colorama import Fore, init
 from tqdm import tqdm
 
@@ -44,15 +45,15 @@ def sigalTest(para, df, paraTrading, equityFilePath):
     # 计算资金曲线
     _df = getEquity(_df, paraTrading)
 
-    # # 只存储满足期望盈亏比的数据，如果开了3倍杠杆，盈利倍数1.5，就只存储收益率大于4.5的数据
-    # if _df.iloc[-1]["equityCurve"] >= (paraTrading["leverage"] * PL_RATE):
-    #     equityFileName = f'{levelTest}_{para}_{round(_df.iloc[-1]["equityCurve"], 3)}.{SINGAL_TEST_FORMAT}'
-    #     equityFile = os.path.join(equityFilePath, equityFileName)
-    #     os.makedirs(equityFilePath, exist_ok=True)
-    #     if SINGAL_TEST_FORMAT == "csv":
-    #         _df.to_csv(equityFile, index=False)
-    #     elif SINGAL_TEST_FORMAT == "hdf":
-    #         _df.to_hdf(equityFile, index=False, mode="w", complevel=5, key="_df")
+    # 只存储满足期望盈亏比的数据，如果开了3倍杠杆，盈利倍数1.5，就只存储收益率大于4.5的数据
+    if _df.iloc[-1]["equityCurve"] >= (paraTrading["leverage"] * PL_RATE):
+        equityFileName = f'{levelTest}_{para}_{round(_df.iloc[-1]["equityCurve"], 3)}.{SINGAL_TEST_FORMAT}'
+        equityFile = os.path.join(equityFilePath, equityFileName)
+        os.makedirs(equityFilePath, exist_ok=True)
+        if SINGAL_TEST_FORMAT == "csv":
+            _df.to_csv(equityFile, index=False)
+        elif SINGAL_TEST_FORMAT == "hdf":
+            _df.to_hdf(equityFile, index=False, mode="w", complevel=5, key="_df")
 
     # 计算收益指标：布林参数（testLevel周期、maLength均线长度、times倍数），
     # finalEquity最终收益率，leverage杠杆倍数，isFucked爆仓次数，totalTrades交易次数，winRate胜率
@@ -169,7 +170,7 @@ def sigalTest(para, df, paraTrading, equityFilePath):
 
 def main(equityFilePath):
     init()  # 彩色字体初始化
-    # 生成布林带所有参数组合
+    # 生成所有参数排列组合
     parasList = getParas(PARAS_LIST)
     ex = ccxt.binance(EXCHANGE_CONFIG)
 
@@ -189,13 +190,14 @@ def main(equityFilePath):
         
         df = df[(df["openTimeGmt8"]>=pd.to_datetime(START_TIME_TEST)) & (df["openTimeGmt8"]<=pd.to_datetime(END_TIME_TEST))]
 
-    # 把固定参数先传进去，然后把布林参数作为可变参数放进线程
+    # 把固定参数先传进去，然后把可变参数放进线程
+    print(f"Total Paras: {len(parasList)}")
     processMax = min(len(parasList), cpu_count())
     print(f"Opening {Fore.MAGENTA+str(processMax)} {Fore.RESET}processes...")
     # processMax = 1
     callback = partial(sigalTest, df=df, paraTrading=PARA_TRADING, equityFilePath=equityFilePath)
     with Pool(processes=processMax) as pool:
-        dfList = pool.map(callback, tqdm(parasList, ncols=100))
+        dfList = pool.map(callback, tqdm(parasList, ncols=100, bar_format="{l_bar}{r_bar}"))
         final = pd.concat(dfList, ignore_index=True)
         final.sort_values("最终净值", ascending=False, inplace=True)
         reportFile = os.path.join(equityFilePath, f"report_{t}.csv")

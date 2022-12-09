@@ -1,4 +1,5 @@
 import datetime as dt
+import math
 import time
 from itertools import product
 
@@ -351,14 +352,14 @@ def getSignalSma3(df, para):
     dist = para[3] / 100
 
     # 计算三均线，MA均线
-    # df["ma1"] = df["close"].rolling(ma1Len).mean()
-    # df["ma2"] = df["close"].rolling(ma2Len).mean()
-    # df["ma3"] = df["close"].rolling(ma3Len).mean()
+    df["ma1"] = df["close"].rolling(ma1Len).mean()
+    df["ma2"] = df["close"].rolling(ma2Len).mean()
+    df["ma3"] = df["close"].rolling(ma3Len).mean()
 
     # EMA均线
-    df["ma1"] = df["close"].ewm(span=ma1Len, adjust = False).mean()
-    df["ma2"] = df["close"].ewm(span=ma2Len, adjust = False).mean()
-    df["ma3"] = df["close"].ewm(span=ma3Len, adjust = False).mean()
+    # df["ma1"] = pd.ewma(df["close"], span=ma1Len)
+    # df["ma2"] = pd.ewma(df["close"], span=ma2Len)
+    # df["ma3"] = pd.ewma(df["close"], span=ma3Len)
 
     # 做多平多信号，多头排列做多，ma1下穿ma2平多
     condLong1 = df["ma1"] > df["ma2"]
@@ -386,6 +387,236 @@ def getSignalSma3(df, para):
     df['signal'].fillna(method='ffill', inplace=True)
     df['signal'].fillna(value=0, inplace=True)
 
+    return df
+
+
+def getSignalNwe(df, para):
+    nweLength = para[0]
+    nweBandwidth = para[1]
+    nweTimes = para[2]
+    atrLength = para[3]
+    atrTimes = para[4]
+    rsiLength = para[5]
+    plRate = para[6]
+
+    def getNwe(dfClose, bandwidth, times):
+
+        close = list(dfClose)
+        close.reverse()
+        length = len(close)
+
+        y = []
+        sum_e = 0.0
+
+        for i in range(length):
+            sum = 0.0
+            sumw = 0.0
+
+            for j in range(length):
+                w = math.exp(-(math.pow(i-j,2)/(bandwidth*bandwidth*2)))
+                sum += close[j]*w
+                sumw += w
+            
+            y2 = sum / sumw
+            sum_e += abs(close[i] - y2)
+            y.append(y2)
+        
+        mae = sum_e / length * times
+        # 直接改写外部df，把本次结果写入最后一行，apply一组轮转500行，结果是最后一行的
+        nwe = y[0]
+        nweUpper = nwe + mae
+        nweLower = nwe - mae
+        
+        # rolling apply只允许返回一个数字，用下面方法可以访问到外部df的index，就可以直接修改外部df
+        _index = dfClose.index[-1]
+        df.loc[_index, "nweMed"] = nwe
+        df.loc[_index, "nweUpper"] = nweUpper
+        df.loc[_index, "nweLower"] = nweLower
+        return 1
+
+
+    def getAtr(df, length=14, times=0.5):
+        df["atr"] = df.ta.atr(length=length) * times
+        df["atrHigh"] = df["high"] + df["atr"]
+        df["atrLow"] = df["low"] - df["atr"]
+
+        return df
+
+
+    def getRsi(df, length=5):
+        df["rsi"] = df.ta.rsi(length=length)
+        return df
+
+
+    # 因为rolling.apply只能返回一个数值，用下面方法直接把nwe轨道写入df。那么也不需要返回值了。虽然写法很怪异。。。
+    # https://stackoverflow.com/questions/60736556/pandas-rolling-apply-using-multiple-columns/60918101#60918101
+    rol = df["close"].rolling(nweLength)
+    rol.apply(getNwe, raw=False, args=(nweBandwidth, nweTimes))  # 此时df已经带有nwe轨道值了
+
+    df = getAtr(df, atrLength, atrTimes)
+
+    df = getRsi(df, rsiLength)
+
+    # 开多：收盘价上穿nwe下轨，且rsi超卖
+    distToMed = 0.2  # 调整到中轨的距离
+    condLong1 = df["close"].shift() > df["nweLower"].shift()
+    condLong2 = df["close"] < df["nweLower"]
+    condLong3 = df["rsi"] < 30
+    condLong4 = df["open"] < df["nweMed"]-(df["nweMed"]-df["nweLower"])*distToMed
+    df.loc[condLong1&condLong2&condLong3&condLong4, "signalLong"] = 1
+
+    # 开空：收盘价下穿nwe上轨，且rsi超买
+    condShort1 = df["close"].shift()<df["nweUpper"].shift()
+    condShort2 = df["close"]>df["nweUpper"]
+    condShort3 = df["rsi"] > 70
+    condShort4 = df["open"] > df["nweUpper"]-(df["nweUpper"]-df["nweMed"])*(1-distToMed)
+    df.loc[condShort1&condShort2&condShort3&condShort4, "signalShort"] = -1
+
+    #计算延迟开仓和止盈止损的函数
+    # 止损：atr下轨
+    # 止盈：固定比例止盈plRate
+    # 延迟开仓约束：
+    # 1、出现开仓信号（到达轨道边缘） 
+    # 2、出现反转k线回穿边缘（出反转趋势） 
+    # 3、反转k线的收盘价没有越过中轨（规避趋势行情，震荡策略怕趋势）,距中轨20%距离
+    def delayOpen(_df1, plRate, steps=5):
+        indexs = _df1.index.tolist()
+        for index in indexs:
+            for i in range(1, steps+1):
+
+                if (index+i)>(len(df)-1): break  # 防止末尾有计算超出范围
+
+                if (df.loc[index, "signalLong"]==1)\
+                    and (df.loc[index+i, "close"]>df.loc[index+i, "nweLower"])\
+                    and df.loc[index+i, "close"]<df.loc[index+i,"nweMed"]-(df.loc[index+i,"nweMed"]-df.loc[index+i,"nweLower"])*distToMed:
+                    df.loc[index+i, "signal"] = 1
+                    df.loc[index+i, "stopLossLong"] = df.loc[index+i, "atrLow"]
+                    df.loc[index+i, "stopProfitLong"] = df.loc[index+i, "close"]+(df.loc[index+i, "close"]-df.loc[index+i, "atrLow"])*plRate
+                    break
+
+                elif (df.loc[index, "signalShort"]==-1)\
+                    and (df.loc[index+i, "close"]<df.loc[index+i, "nweUpper"])\
+                    and df.loc[index+i,"close"]>df.loc[index+i, "nweUpper"]-(df.loc[index+i,"nweUpper"]-df.loc[index+i,"nweMed"])*(1-distToMed):
+                    df.loc[index+i, "signal"] = -1
+                    df.loc[index+i, "stopLossShort"] = df.loc[index+i, "atrHigh"]
+                    df.loc[index+i, "stopProfitShort"] = df.loc[index+i, "close"]-(df.loc[index+i, "atrHigh"]-df.loc[index+i, "close"])*plRate
+                    break
+
+        # apply必须返回一个值
+        return 1
+    
+    # 把带开仓信号的k线放入计算函数，向后推steps根，如果出现反转k线就开仓并计算当下的止盈止损，如果没出现就忽略
+    steps = 5
+    r = df.loc[(df["signalLong"]==1)|(df["signalShort"]==-1)].apply(delayOpen, args=(plRate, steps))
+    
+    def stopLossProfit(_df2):
+        indexs = _df2.index.tolist()
+        for index in indexs:
+            n = 1
+            while True:
+                # 超限退出
+                if (index+n) > (len(df)-1): break
+                # 出现与当前持仓方向不同的信号就退出，相同持仓时不退出继续
+                # 避免出现止盈止损点位被后覆盖
+                if pd.notnull(df.loc[index+n, "signal"])\
+                    and df.loc[index+n, "signal"] != df.loc[index, "signal"]: 
+                    break
+
+                if df.loc[index, "signal"]==1:
+                    if df.loc[index+n, "low"] <= df.loc[index, "stopLossLong"]\
+                        or df.loc[index+n, "high"] >= df.loc[index, "stopProfitLong"]:
+                        df.loc[index+n, "signal"] = 0
+                        break
+                elif df.loc[index, "signal"]==-1:
+                    if df.loc[index+n, "high"] >= df.loc[index, "stopLossShort"]\
+                        or df.loc[index+n, "low"] <= df.loc[index, "stopProfitShort"]:
+                        df.loc[index+n, "signal"] = 0
+                        break
+                n += 1
+        return 1 
+    
+    # 有信号的k线即带止盈止损价位的k线，放入止盈止损函数进行处理
+    # 止盈止损函数里会一直向后寻找止盈止损出场k线，
+    # 因为这是短线震荡策略，现实中一定会遇到出场点，所以没有考虑一直未能找到止盈止损的情况
+    r = df.loc[pd.notnull(df["signal"])].apply(stopLossProfit)
+    
+    df['signal'].fillna(method="ffill", inplace=True)
+    return df
+
+
+def getSignalBollingMtm(df, para=[90]):
+    n1 = para[0]
+    n2 = 35*n1
+    df['median'] = df['close'].rolling(window=n2).mean()
+    df['std'] = df['close'].rolling(n2, min_periods=1).std(ddof=0)
+    df['z_score'] = abs(df['close'] - df['median']) / df['std']
+    df['m'] = df['z_score'].rolling(window=n2).mean()
+    df['upper'] = df['median'] + df['std'] * df['m']
+    df['lower'] = df['median'] - df['std'] * df['m']
+    condition_long = df['close'] > df['upper']
+    condition_short = df['close'] < df['lower']
+    df['mtm'] = df['close'] / df['close'].shift(n1) - 1
+    df['mtm_mean'] = df['mtm'].rolling(window=n1, min_periods=1).mean()
+    df['c1'] = df['high'] - df['low']
+    df['c2'] = abs(df['high'] - df['close'].shift(1))
+    df['c3'] = abs(df['low'] - df['close'].shift(1))
+    df['tr'] = df[['c1', 'c2', 'c3']].max(axis=1)
+    df['atr'] = df['tr'].rolling(window=n1, min_periods=1).mean()
+    df['avg_price'] = df['close'].rolling(window=n1, min_periods=1).mean()
+    df['wd_atr'] = df['atr'] / df['avg_price']
+    df['mtm_l'] = df['low'] / df['low'].shift(n1) - 1
+    df['mtm_h'] = df['high'] / df['high'].shift(n1) - 1
+    df['mtm_c'] = df['close'] / df['close'].shift(n1) - 1
+    df['mtm_c1'] = df['mtm_h'] - df['mtm_l']
+    df['mtm_c2'] = abs(df['mtm_h'] - df['mtm_c'].shift(1))
+    df['mtm_c3'] = abs(df['mtm_l'] - df['mtm_c'].shift(1))
+    df['mtm_tr'] = df[['mtm_c1', 'mtm_c2', 'mtm_c3']].max(axis=1)
+    df['mtm_atr'] = df['mtm_tr'].rolling(window=n1, min_periods=1).mean()
+    df['mtm_l_mean'] = df['mtm_l'].rolling(window=n1, min_periods=1).mean()
+    df['mtm_h_mean'] = df['mtm_h'].rolling(window=n1, min_periods=1).mean()
+    df['mtm_c_mean'] = df['mtm_c'].rolling(window=n1, min_periods=1).mean()
+    df['mtm_c1'] = df['mtm_h_mean'] - df['mtm_l_mean']
+    df['mtm_c2'] = abs(df['mtm_h_mean'] - df['mtm_c_mean'].shift(1))
+    df['mtm_c3'] = abs(df['mtm_l_mean'] - df['mtm_c_mean'].shift(1))
+    df['mtm_tr'] = df[['mtm_c1', 'mtm_c2', 'mtm_c3']].max(axis=1)
+    df['mtm_atr_mean'] = df['mtm_tr'].rolling(window=n1, min_periods=1).mean()
+    indicator = 'mtm_mean'
+    df[indicator] = df[indicator] * df['mtm_atr']
+    df[indicator] = df[indicator] * df['mtm_atr_mean']
+    df[indicator] = df[indicator] * df['wd_atr']
+    df['median'] = df[indicator].rolling(window=n1).mean()
+    df['std'] = df[indicator].rolling(n1, min_periods=1).std(ddof=0)
+    df['z_score'] = abs(df[indicator] - df['median']) / df['std']
+    df['m'] = df['z_score'].rolling(window=n1).min().shift(1)
+    df['up'] = df['median'] + df['std'] * df['m']
+    df['dn'] = df['median'] - df['std'] * df['m']
+    condition1 = df[indicator] > df['up']
+    condition2 = df[indicator].shift(1) <= df['up'].shift(1)
+    condition = condition1 & condition2
+    df.loc[condition, 'signal_long'] = 1
+    condition1 = df[indicator] < df['dn']
+    condition2 = df[indicator].shift(1) >= df['dn'].shift(1)
+    condition = condition1 & condition2
+    df.loc[condition, 'signal_short'] = -1
+    condition1 = df[indicator] < df['median']
+    condition2 = df[indicator].shift(1) >= df['median'].shift(1)
+    condition = condition1 & condition2
+    df.loc[condition, 'signal_long'] = 0
+    condition1 = df[indicator] > df['median']
+    condition2 = df[indicator].shift(1) <= df['median'].shift(1)
+    condition = condition1 & condition2
+    df.loc[condition, 'signal_short'] = 0
+    df.loc[condition_long, 'signal_short'] = 0
+    df.loc[condition_short, 'signal_long'] = 0
+    df.loc[condition_long, 'signal_short'] = 0
+    df['signal_long'].fillna(method='ffill', inplace=True)
+    df['signal_short'].fillna(method='ffill', inplace=True)
+    df['signal'] = df[['signal_long', 'signal_short']].sum(axis=1, min_count=1, skipna=True)
+    df['signal'].fillna(value=0, inplace=True)
+    temp = df[df['signal'].notnull()][['signal']]
+    temp = temp[temp['signal'] != temp['signal'].shift(1)]
+    df['signal'] = temp['signal']
+    df.drop(['signal_long', 'signal_short', 'atr', 'z_score'], axis=1, inplace=True)
     return df
 
 
