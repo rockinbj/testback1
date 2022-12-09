@@ -611,8 +611,9 @@ def getSignalBollingMtm(df, para=[90]):
     df.loc[condition_long, 'signal_short'] = 0
     df['signal_long'].fillna(method='ffill', inplace=True)
     df['signal_short'].fillna(method='ffill', inplace=True)
-    df['signal'] = df[['signal_long', 'signal_short']].sum(axis=1, min_count=1, skipna=True)
+    df['signal'] = df[['signal_long', 'signal_short']].sum(axis=1)
     df['signal'].fillna(value=0, inplace=True)
+    
     temp = df[df['signal'].notnull()][['signal']]
     temp = temp[temp['signal'] != temp['signal'].shift(1)]
     df['signal'] = temp['signal']
