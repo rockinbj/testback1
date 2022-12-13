@@ -10,7 +10,10 @@ from testConfig import *
 # 获取交易所原始数据
 def getRecords(ex, symbol, level, startTime, endTime):
     dfList = []  # 存储所有原始数据的list
+    startTime += " 00:00:00"
+    endTime += " 00:00:00"
     sinceTime= startTime
+
     while True:
         print(f"Getting {symbol} {level} {sinceTime}...")
         # 从开始时间取数据，单次循环能取到交易所允许的最大数据量
@@ -63,7 +66,7 @@ def main():
         print("    python getKlines.py binance swap btc/usdt 5m 2019-11-12 2022-12-13")
         raise RuntimeError("参数不正确")
     if sys.argv[2] == "swap":
-        EXCHANGE_CONFIG["options":{"defaultType":"future"}]
+        EXCHANGE_CONFIG["options"]={"defaultType":"future"}
 
     ex = ccxt.binance(EXCHANGE_CONFIG)
     _type = sys.argv[2]
