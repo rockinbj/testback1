@@ -2,11 +2,20 @@ import os
 
 ## 所有参数设置
 SYMBOL = "ETH/USDT"
-STRATEGY = "BollingMtm"
+STRATEGY = "Psy"
+
+# 所有策略公用的周期，必须放在PARAS_LIST的第一个
+PARA_LEVEL_LIST = ["1h"]
+
+# PSY参数
+PARA_PSY_N_LIST = range(10, 410, 10)
+PARA_PSY_M_LIST = range(5, 35, 5)
+PARA_PSY_STOPLOSS_LIST = range(5, 20, 5)
+PARAS_LIST = [PARA_LEVEL_LIST, PARA_PSY_N_LIST, PARA_PSY_M_LIST, PARA_PSY_STOPLOSS_LIST]
 
 # 动量布林BollingMtm参数
-PARA_LEVEL_LIST = ["5m", "15m", "30m", "1h", "4h", "1d"]
-PARA_TIMES_LIST = range(1,100)
+# PARA_LEVEL_LIST = ["1h"]
+# PARA_TIMES_LIST = [90]
 
 # 简单布林Bolling参数
 # PARA_LEVEL_LIST = ["4h"]
@@ -45,12 +54,12 @@ PARA_TIMES_LIST = range(1,100)
 # PARAS_LIST = [PARA_LEVEL_LIST, PARA_MA_LIST, PARA_TIMES_LIST, PARA_PERCENT_LIST]
 # PARAS_LIST = [LEVEL_LIST, SMA1_LIST, SMA2_LIST, SMA3_LIST, DIST_LIST]
 # PARAS_LIST = [LEVEL_LIST, NWE_LEN_LIST, NWE_BAND_LIST, NWE_TIMES_LIST, ATR_LEN_LIST, ATR_TIMES_LIST, RSI_LEN_LIST, NWE_PLRATE_LIST]
-PARAS_LIST = [PARA_LEVEL_LIST, PARA_TIMES_LIST]
+# PARAS_LIST = [PARA_LEVEL_LIST, PARA_TIMES_LIST]
 
 
 # 测试数据的起止时间
-START_TIME_TEST = "2018-10-01 00:00:00"
-END_TIME_TEST = "2022-12-03 00:00:00"
+START_TIME_TEST = "2019-11-27 00:00:00"
+END_TIME_TEST = "2022-12-12 00:00:00"
 
 # 单个参数测试结果的格式
 SINGAL_TEST_FORMAT = "csv"
@@ -61,17 +70,17 @@ PL_RATE = 0
 # 原始数据的k线级别
 LEVEL = "5m"
 # 原始数据的起止时间
-START_TIME_DATA = "2018-12-01 00:00:00"
-END_TIME_DATA = "2022-12-05 00:00:00"
+START_TIME_DATA = "2017-08-17 00:00:00"
+END_TIME_DATA = "2022-12-12 00:00:00"
 # 原始数据文件的格式和命名
 DATA_FILE_FORMAT = "hdf"
-# DATA_FILE = os.path.join("dataStore", "data_BTC-USDT_5m_20180701_20221124.hdf")
+# DATA_FILE = os.path.join("dataStore", "data_BTC-USDT_spot_5m_20170817_20221212.hdf")
 DATA_FILE = os.path.join("dataStore", f'data_{SYMBOL.replace("/","-")}_{LEVEL}_{START_TIME_DATA.replace("-","").replace(" ","")[:8]}_{END_TIME_DATA.replace("-","").replace(" ","")[:8]}.{DATA_FILE_FORMAT}')
 
 # 交易所参数
 EXCHANGE_CONFIG = {
     "options":{
-        "defaultType":"future",
+        # "defaultType":"future",
     },
     "timeout": 5000,
 }
@@ -80,10 +89,10 @@ EXCHANGE_CONFIG = {
 PARA_TRADING = {
     "cash": 10000,  # 初始现金、每次交易金额
     "faceValue": 0.001,  # 单张合约面值
-    "commission": 4 / 10000,  # 手续费
+    "commission": 2 / 1000,  # 手续费
     "slippage": 1 / 1000,  # 滑点
     "leverage": 3,  # 杠杆
-    "marginMin": 1 / 100,  # 最低保障金率，低于爆仓
+    "marginMin": 15 / 100,  # 最低保障金率，低于爆仓
 }
 
 # 睡眠时间

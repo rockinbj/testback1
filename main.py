@@ -24,7 +24,7 @@ pd.set_option("display.unicode.east_asian_width", True)
 
 # 单次计算，受python多线程传参限制，第一个参数布林参数可变，后面都是固定参数
 def sigalTest(para, df, paraTrading, equityFilePath):
-    # print(f"paras: {paraBolling}")
+
     _df = df.copy()
     levelTest = para[0]
     para = para[1:]
@@ -191,13 +191,14 @@ def main(equityFilePath):
         df = df[(df["openTimeGmt8"]>=pd.to_datetime(START_TIME_TEST)) & (df["openTimeGmt8"]<=pd.to_datetime(END_TIME_TEST))]
 
     # 把固定参数先传进去，然后把可变参数放进线程
+    print(f"Strategy: {STRATEGY}")
     print(f"Total Paras: {len(parasList)}")
     processMax = min(len(parasList), cpu_count())
     print(f"Opening {Fore.MAGENTA+str(processMax)} {Fore.RESET}processes...")
     # processMax = 1
     callback = partial(sigalTest, df=df, paraTrading=PARA_TRADING, equityFilePath=equityFilePath)
     with Pool(processes=processMax) as pool:
-        dfList = pool.map(callback, tqdm(parasList, ncols=100, bar_format="{l_bar}{r_bar}"))
+        dfList = pool.map(callback, tqdm(parasList, ncols=100))
         final = pd.concat(dfList, ignore_index=True)
         final.sort_values("最终净值", ascending=False, inplace=True)
         reportFile = os.path.join(equityFilePath, f"report_{t}.csv")
@@ -214,4 +215,4 @@ if __name__ == "__main__":
     main(equityFilePath)
 
     _endTime = time.time()
-    print(f"运行时间：{round((_endTime - _startTime),2)}秒")
+    print(f"time used: {round((_endTime - _startTime),2)}秒")

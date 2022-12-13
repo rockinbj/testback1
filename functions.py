@@ -611,13 +611,113 @@ def getSignalBollingMtm(df, para=[90]):
     df.loc[condition_long, 'signal_short'] = 0
     df['signal_long'].fillna(method='ffill', inplace=True)
     df['signal_short'].fillna(method='ffill', inplace=True)
-    df['signal'] = df[['signal_long', 'signal_short']].sum(axis=1, min_count=1, skipna=True)
+    df['signal'] = df[['signal_long', 'signal_short']].sum(axis=1)
     df['signal'].fillna(value=0, inplace=True)
+    # df['signal'] = df[['signal_long', 'signal_short']].sum(axis=1, min_count=1, skipna=True)
     temp = df[df['signal'].notnull()][['signal']]
     temp = temp[temp['signal'] != temp['signal'].shift(1)]
     df['signal'] = temp['signal']
     df.drop(['signal_long', 'signal_short', 'atr', 'z_score'], axis=1, inplace=True)
     return df
+
+
+def getSignalPsy(df, para=[90, 8, 10]):
+    # psy心理线指标，将一段周期内的投资倾向转换为指标
+    # psy = n日内上涨的天数/n * 100
+    # 当psy突破上限阈值50+m，平空做多
+    # 当psy突破下限阈值50-m，平多做空
+    n = para[0]
+    m = para[1]
+    stopLossPct = para[2] / 100
+
+    # diff计算当前收盘价与上一收盘价差值
+    df['rtn'] = df['close'].diff()
+    # up将所有收盘价上涨的k线标记为1
+    df['up'] = np.where(df['rtn'] > 0, 1, 0)
+    # 标记为1的k线数量和即为n日内上涨天数
+    df['psy'] = df['up'].rolling(window=n).sum() / n * 100
+    df.dropna(inplace=True)
+    df.reset_index(drop=True, inplace=True)
+
+    # 计算多空k线
+    df.loc[df['psy']>(50+m), 'signalLong'] = 1
+    df.loc[df['psy']<(50-m), 'signalShort'] = -1
+
+    # 生成signal最终信号列
+    df['signal'] = np.nan
+
+    # 止损记录表，用于记录之前产生的信号方向和止损价格
+    stopLossRecord = {
+        'preSignal': 0,
+        'stopLossPrice': None,
+    }
+
+    for i in range(n-1, df.shape[0]):
+        # 如果之前是空仓状态
+        if stopLossRecord['preSignal'] == 0:
+            # 如果本周期出现做多信号
+            if df.at[i, 'signalLong'] == 1:
+                
+                df.at[i, 'signal'] = 1
+                stopLossRecord['preSignal'] = 1
+                stopLossPrice = df.at[i, 'close'] * (1-stopLossPct)
+                stopLossRecord['stopLossPrice'] = stopLossPrice
+            
+            # 如果本周期出现做空信号
+            elif df.at[i, 'signalShort'] == -1:
+                
+                df.at[i, 'signal'] = -1
+                stopLossRecord['preSignal'] = -1
+                stopLossPrice = df.at[i, 'close'] * (1+stopLossPct)
+                stopLossRecord['stopLossPrice'] = stopLossPrice
+            # 没有出现信号
+            else:
+                stopLossRecord['preSignal'] = 0
+                stopLossRecord['stopLossPrice'] = None
+
+        # 如果之前持有多仓
+        elif stopLossRecord['preSignal'] == 1:
+            # 如果本周期出现止损信号
+            if df.at[i, 'low'] < stopLossRecord['stopLossPrice']:
+                
+                df.at[i, 'signal'] = 0
+                stopLossRecord['preSignal'] = 0
+                stopLossRecord['stopLossPrice'] = None
+            
+            # 如果本周期出现做空信号，则要平多仓且开空仓
+            elif df.at[i, 'signalShort'] == -1:
+                
+                df.at[i, 'signal'] = -1
+                stopLossRecord['preSignal'] = -1
+                stopLossPrice = df.at[i, 'close'] * (1+stopLossPct)
+                stopLossRecord['stopLossPrice'] = stopLossPrice
+        
+        # 如果之前持有空仓
+        elif stopLossRecord['preSignal'] == -1:
+            # 如果本周期出现止损信号
+            if df.at[i, 'high'] > stopLossRecord['stopLossPrice']:
+                
+                df.at[i, 'signal'] = 0
+                stopLossRecord['preSignal'] = 0
+                stopLossRecord['stopLossPrice'] = None
+            
+            # 如果本周期出现做多信号，则要平空仓且开多仓
+            elif df.at[i, 'signalLong'] == 1:
+                
+                df.at[i, 'signal'] = 1
+                stopLossRecord['preSignal'] = 1
+                stopLossPrice = df.at[i, 'close'] * (1-stopLossPct)
+                stopLossRecord['stopLossPrice'] = stopLossPrice
+
+        else:
+            raise RuntimeError("仓位状态不在可选范围内，退出，请检查持仓逻辑")
+
+    df['signal'].fillna(method='ffill', inplace=True)
+    df['signal'].fillna(value=0, inplace=True)
+    # df.drop(['rtn', 'up', 'signalLong', 'signalShort'], axis=1, inplace=True)
+
+    return df
+
 
 
 def getPosition(df):
