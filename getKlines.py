@@ -58,18 +58,22 @@ def getRecords(ex, symbol, level, startTime, endTime):
 
 def main():
     # python getKlines.py binance spot btc/usdt 5m 2019-11-12 2022-12-13
-    EXCHANGE_CONFIG = {"timeout": 5000,}
+    exConfig1 = {"timeout": 5000,}
+    exConfig2 = {"timeout": 5000, "options":{"defaultType":"future"}}
     
     if len(sys.argv) < 7:
         print("Usage:")
-        print("    python getKlines.py binance spot btc/usdt 5m 2019-11-12 2022-12-13")
-        print("    python getKlines.py binance swap btc/usdt 5m 2019-11-12 2022-12-13")
+        print("    python getKlines.py binance spot btc/usdt 5m 2017-01-01 2022-12-13")
+        print("    python getKlines.py binance swap btc/usdt 5m 2017-01-01 2022-12-13")
+        print("    python getKlines.py binance all eth/usdt 5m 2017-01-01 2022-12-13")
         raise RuntimeError("参数不正确")
-    if sys.argv[2] == "swap":
-        EXCHANGE_CONFIG["options"]={"defaultType":"future"}
+    if sys.argv[2] == "spot":
+        exConfig = [exConfig1]
+    elif sys.argv[2] == "swap":
+        exConfig = [exConfig2]
+    else:
+        exConfig = [exConfig1, exConfig2]
 
-    ex = ccxt.binance(EXCHANGE_CONFIG)
-    _type = sys.argv[2]
     symbol = sys.argv[3].upper()
     level = sys.argv[4].lower()
     dateStart = sys.argv[5]
@@ -77,14 +81,17 @@ def main():
 
     dataPath = "dataStore"
 
-    df = getRecords(ex, symbol, level, dateStart, dateEnd)
-    dateStartReal = df.loc[0, "openTimeGmt8"].date()
-    dateEndReal = df.loc[df.shape[0]-1, "openTimeGmt8"].date()
+    for _config in exConfig:
+        _type = "swap" if "options" in _config else "spot"
+        ex = ccxt.binance(_config)
+        df = getRecords(ex, symbol, level, dateStart, dateEnd)
+        dateStartReal = df.loc[0, "openTimeGmt8"].date()
+        dateEndReal = df.loc[df.shape[0]-1, "openTimeGmt8"].date()
 
-    file = os.path.join(dataPath, f"data_{symbol.replace('/', '-')}_{_type}_{level}_{dateStartReal}_{dateEndReal}.hdf")
-    print(f"完成获取k线，共{df.shape[0]}根")
-    df.to_hdf(file, key="df", index=False, mode="w")
-    print(f"完成写入文件。起始日期：{dateStartReal},结束日期：{dateEndReal}")
+        file = os.path.join(dataPath, f"data_{symbol.replace('/', '-')}_{_type}_{level}_{dateStartReal}_{dateEndReal}.hdf")
+        print(f"完成获取{symbol}k线，共{df.shape[0]}根")
+        df.to_hdf(file, key="df", index=False, mode="w")
+        print(f"完成写入文件。起始日期：{dateStartReal},结束日期：{dateEndReal}")
 
 
 if __name__ == "__main__":
